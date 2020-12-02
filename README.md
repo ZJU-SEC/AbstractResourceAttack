@@ -1,5 +1,4 @@
-# yangnanzi-llvm-pass
-This repository is used to analysis the shared resources of different containers
+# yangnanzi-resource-analysis
 检查锁保护的资源
 ---
 `锁检查` 用来分析kernel中锁保护的对象，以及可能造成DoS攻击的触发函数。 
