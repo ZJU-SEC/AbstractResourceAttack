@@ -64,6 +64,8 @@ std::string print_debugloc(llvm::Instruction *);
 
 std::string ReturnTypeRefine(llvm::Type &rt);
 
+void PrintSet(std::set<std::string> StringSet,std::vector<llvm::Type*> TypeStack);
+
 template<class T> std::vector<T *> find_phi_select_user(llvm::Value *vin)
 {
 	std::vector<T *> result;

@@ -8,7 +8,7 @@
 extern PexCallGraph gCallGraph;
 char ResourceCollectPass::ID = 0;
 std::error_code ec;
-llvm::raw_fd_ostream resultstream("./cmp-finder.txt", ec, llvm::sys::fs::OF_Text | llvm::sys::fs::OF_Append);
+llvm::raw_fd_ostream resultstream("./location-finder.txt", ec, llvm::sys::fs::OF_Text | llvm::sys::fs::OF_Append);
 /*
 	runOnModule是pass的主函数。
 */
@@ -16,12 +16,12 @@ bool ResourceCollectPass::runOnModule(llvm::Module &M) {
 	 
 	LockPair LP = LockPair(M);                       //实例化一个LockPair的对象，我们把找锁所在结构体的内容也加到了LockPair里面去
 	LP.CollectLockAndAtomic();	
-	LP.Test();					//实例化我们的锁函数集合，在这里就相当于执行了之前的path. 				
+	//LP.Test();					//实例化我们的锁函数集合，在这里就相当于执行了之前的path. 				
 	auto &functionList = M.getFunctionList();
 	bool CanTriger = false;
     for (auto &function : functionList){                      //遍历module的所有Function 
 		std::string FuncName = function.getName().str();
-		//if(FuncName == "mmap_base"){
+		//if(FuncName == "alloc_pid"){
 			LP.LockPairMain(&function);
 			LP.LockAtomicResource(&function);
 			LP.MarkRlimitControlFunc(&function);
@@ -31,23 +31,63 @@ bool ResourceCollectPass::runOnModule(llvm::Module &M) {
 	//LP.Test();
 
 	for (auto &mapit : LP.FuncResource){	//这里我们形成了一个map,存放的是不经过call处理的所有找出的敏感函数。
-		if(SysCallPath(mapit.first,LP.RlimitControlFunc)){
+		//if(SysCallPath(mapit.first,LP.RlimitControlFunc)){
 			auto Resource = mapit.second;
 			for(auto it = Resource.begin();it != Resource.end();it++){
-				resultstream<<"FunctionName:"<<mapit.first->getName().str()<<","<<*it<<"\n";
+				llvm::Function *locf=mapit.first;
+				std::string loc;
+				for(llvm::inst_iterator Itb=inst_begin(locf);Itb!=inst_end(locf);Itb++){
+					llvm::Instruction *itm=&*Itb;
+					if(llvm::CallInst *callInst=llvm::dyn_cast<llvm::CallInst>(itm)){
+						std::cout<<"getCalled"<<std::endl;
+						const llvm::DebugLoc &location=itm->getDebugLoc();
+						if(location){
+							std::cout<<"getLoc"<<std::endl;
+							if(llvm::DIScope *Scope=llvm::dyn_cast<llvm::DIScope>(location.getScope())){
+								std::cout<<"dyn_cast right"<<std::endl;
+								llvm::StringRef fileName=Scope->getFilename();
+								//resultstream<<"Location:"<<fileName.str()<<"\n";
+								loc = fileName.str();
+								break;
+							}
+						} else{
+							std::cout<<"NO LOCATION message"<<std::endl;
+						}
+					}
+				}
+				resultstream<<"FunctionName:"<<mapit.first->getName().str()<<","<<*it<<","<<"Location:"<<loc<<"\n";
 			}
-		}
+		//}
 	}
 	//LP.Test();*/
 
 	CtlTableAnalysis CT = CtlTableAnalysis(M);  //43和44行用于跑新加的CtlTableAnalysis。
 	CT.Test();
 	for (auto &mapit : CT.CtlFuncResource){
-		if(SysCallPath(mapit.first,LP.RlimitControlFunc)){
-			auto Resource = mapit.second;
-			for(auto it = Resource.begin();it != Resource.end();it++){
-				resultstream<<"FunctionName:"<<mapit.first->getName().str()<<","<<*it<<"\n";
-			}
+		auto Resource = mapit.second;
+		for(auto it = Resource.begin();it != Resource.end();it++){
+				llvm::Function *locf=mapit.first;
+				std::string loc;
+				for(llvm::inst_iterator Itb=inst_begin(locf);Itb!=inst_end(locf);Itb++){
+					llvm::Instruction *itm=&*Itb;
+					if(llvm::CallInst *callInst=llvm::dyn_cast<llvm::CallInst>(itm)){
+						std::cout<<"getCalled"<<std::endl;
+						const llvm::DebugLoc &location=itm->getDebugLoc();
+						if(location){
+							std::cout<<"getLoc"<<std::endl;
+							if(llvm::DIScope *Scope=llvm::dyn_cast<llvm::DIScope>(location.getScope())){
+								std::cout<<"dyn_cast right"<<std::endl;
+								llvm::StringRef fileName=Scope->getFilename();
+								//resultstream<<"Location:"<<fileName.str()<<"\n";
+								loc = fileName.str();
+								break;
+							}
+						} else{
+							std::cout<<"NO LOCATION message"<<std::endl;
+						}
+					}
+				}	
+			resultstream<<"FunctionName:"<<mapit.first->getName().str()<<","<<*it<<","<<"Location:"<<loc<<"\n";
 		}
 	}
 

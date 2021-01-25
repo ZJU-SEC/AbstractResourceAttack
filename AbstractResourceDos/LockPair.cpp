@@ -5,6 +5,7 @@ std::error_code ec1;
 //llvm::raw_fd_ostream resultstream("./cmp-finder.txt", ec, llvm::sys::fs::OF_Text | llvm::sys::fs::OF_Append);
 llvm::raw_fd_ostream Lockstream("./Lock-finder.txt", ec1, llvm::sys::fs::OF_Text | llvm::sys::fs::OF_Append);
 //llvm::raw_fd_ostream Unlockstream("./Unlock-finder.txt", ec, llvm::sys::fs::OF_Text | llvm::sys::fs::OF_Append);
+std::set<std::string> Namespace {"%struct.uts_namespace*","%struct.ipc_namespace*","%struct.mnt_namespace*","%struct.pid_namespace*","%struct.net*","%struct.cgroup_namespace*"};
 
 LockPair::LockPair(llvm::Module &module){
     _module_ = &module;
@@ -64,9 +65,8 @@ char* LockPair::GetActualFName(std::string &functionname){   //获得函数的�
     }
     return ActualFName;//此处ActualName实际是atomic后面的数字,functionname为真实的atomic
 }
-
-std::string LockPair::GetActualStructType(llvm::Instruction *gepInst,std::string funName){    //传入GEP Instruction和函数名（函数名主要用来调试），返回真实的结构体类型。
-	std::string ActualStructType = "i8*";
+llvm::Type* LockPair::GetActualStructType(llvm::Instruction *gepInst,std::string funName,llvm::Type *originTy){    //传入GEP Instruction和函数名（函数名主要用来调试），返回真实的结构体类型。
+	//std::string ActualStructType = "i8*";
 	std::cout<<"-Functiaon Name-:"<<funName<<std::endl;
 	for(auto operand = gepInst->operands().begin();operand != gepInst->operands().end();++operand){ //遍历Gep Instruction的operand
 		if(llvm::CallInst *callInst = llvm::dyn_cast<llvm::CallInst>(operand)){              //如果该operand对应的是一句call语句
@@ -82,8 +82,9 @@ std::string LockPair::GetActualStructType(llvm::Instruction *gepInst,std::string
 								if(userInst->getOpcode() == llvm::Instruction::BitCast){        //找出bitcast语句
 									llvm::Value *userVar = llvm::dyn_cast<llvm::Value>(userInst);
 									llvm::Type *userType = userVar->getType();                  //bitcast语句对应的Value的TypeName就是要找的真实结构体。
-									std::cout<<"User Type:"<<ReturnTypeRefine(*userType)<<std::endl; 
-									ActualStructType = ReturnTypeRefine(*userType);//这里获取的是处理之后inode.xxxx中的inode struct name.
+									//std::cout<<"User Type:"<<ReturnTypeRefine(*userType)<<std::endl;
+                                    return userType; 
+									//ActualStructType = ReturnTypeRefine(*userType);//这里获取的是处理之后inode.xxxx中的inode struct name.
 								}
 							}
 						}
@@ -98,7 +99,7 @@ std::string LockPair::GetActualStructType(llvm::Instruction *gepInst,std::string
 		}
 	}
 
-	return ActualStructType;
+	return originTy;
 }
 
 void LockPair::id_phi_inst(llvm::Function* funcname,llvm::Instruction* I,std::vector<std::string>* Resource){
@@ -117,14 +118,19 @@ void LockPair::id_phi_inst(llvm::Function* funcname,llvm::Instruction* I,std::ve
             llvm::Type *structType = GEP->getSourceElementType();//此处获取GEP指令的struct
 			if(ReturnTypeRefine(*structType) == "i8*"){            //如果GEP指令中的结构体是i8*,需要特殊处理以下来找出真实的结构体。
 				std::string ActualStructType;
-				ActualStructType = GetActualStructType(GEP,FuncName);     //调用GetActualStructType来获得真实结构体。
+                llvm::Type *ActualTy = GetActualStructType(GEP,FuncName,structType);
+				ActualStructType = ReturnTypeRefine(*ActualTy);    //调用GetActualStructType来获得真实结构体。
 				//resultstream<<"FunctionName:"<<FuncName<<","<<"ProtectedStruct:"<<ActualStructType<<'\n';
                 std::string PS = "ProtectedStruct:" + ActualStructType;
-                Resource->push_back(PS);
+                //if(!StructHasNamespace(ActualTy)){
+                    Resource->push_back(PS);
+                //}
 			}else{
 				//resultstream<<"FunctionName:"<<FuncName<<","<<"ProtectedStruct:"<<ReturnTypeRefine(*structType)<<'\n'; 
-                std::string PS = "ProtectedStruct:" + ReturnTypeRefine(*structType);
-                Resource->push_back(PS);  
+                std::string PS = "ProtectedStruct:" + ReturnTypeRefine(*structType);  
+                //if(!StructHasNamespace(structType)){
+                    Resource->push_back(PS);
+                //}
 			}
             return;             
 		}
@@ -158,14 +164,20 @@ void LockPair::TravseAllocUser(llvm::Function* func,llvm::Instruction* originv,s
 		llvm::Type *structType = gepinst->getSourceElementType();//此处获取GEP指令的struct
 		if(ReturnTypeRefine(*structType) == "i8*"){            //如果GEP指令中的结构体是i8*,需要特殊处理以下来找出真实的结构体。
 			std::string ActualStructType;
-			ActualStructType = GetActualStructType(originv,testfuncName);     //调用GetActualStructType来获得真实结构体。
+            llvm::Type *ActualTy = GetActualStructType(originv,testfuncName,structType);
+			ActualStructType = ReturnTypeRefine(*ActualTy);   //调用GetActualStructType来获得真实结构体。
 			//resultstream<<"FunctionName:"<<testfuncName<<","<<"ProtectedStruct:"<<ActualStructType<<'\n';
             std::string PS = "ProtectedStruct:" + ActualStructType;
-            Resource->push_back(PS);
+            
+            //if(!StructHasNamespace(ActualTy)){
+                Resource->push_back(PS);
+            //}
 		}else{
 			//resultstream<<"FunctionName:"<<testfuncName<<","<<"ProtectedStruct:"<<ReturnTypeRefine(*structType)<<'\n';
             std::string PS = "ProtectedStruct:" + ReturnTypeRefine(*structType);
-            Resource->push_back(PS);   
+            //if(!StructHasNamespace(structType)){
+                Resource->push_back(PS); 
+            //}
 		}        
 		return ;
 	}
@@ -197,7 +209,9 @@ void LockPair::TravseAllocUser(llvm::Function* func,llvm::Instruction* originv,s
 								llvm::Type *userType = userVar->getType();                  
 								//resultstream<<"FunctionName:"<<testfuncName<<","<<"ProtectedStruct:"<<ReturnTypeRefine(*userType)<<"\n";
                                 std::string PS = "ProtectedStruct:" + ReturnTypeRefine(*userType);
-                                Resource->push_back(PS);
+                                //if(!StructHasNamespace(userType)){
+                                    Resource->push_back(PS);
+                                //}
 							}
 						}
 					}
@@ -210,7 +224,9 @@ void LockPair::TravseAllocUser(llvm::Function* func,llvm::Instruction* originv,s
                 tp->print(rso);
                 //resultstream<<"FunctionName:"<<testfuncName<<","<<"ProtectedStruct:"<<ReturnTypeRefine(*tp)<<"\n";
                 std::string PS = "ProtectedStruct:" + ReturnTypeRefine(*tp);
-                Resource->push_back(PS);
+                //if(!StructHasNamespace(tp)){
+                    Resource->push_back(PS);
+                //}
             }
         }
         return;
@@ -239,7 +255,9 @@ void LockPair::TravseAllocUser(llvm::Function* func,llvm::Instruction* originv,s
             StructType->print(rso);
 			//resultstream<<"FunctionName:"<<testfuncName<<","<<"ProtectedStruct:"<<ReturnTypeRefine(*StructType)<<'\n';//如果是函数参数，打印该结构体。
             std::string PS = "ProtectedStruct:" + ReturnTypeRefine(*StructType);
-            Resource->push_back(PS);
+            //if(!StructHasNamespace(StructType)){
+                Resource->push_back(PS);
+            //}
 			continue ;
 		}
 	}
@@ -277,7 +295,9 @@ void LockPair::FindStoreAndCall(llvm::Instruction *Inst,llvm::Function* funcName
                                     llvm::Type* argtype= argValue->getType();//如果函数参数没名字，说明是个局部变量参数，那我这里就把参数类型打印出来就好。
                                     //resultstream<<"FunctionName:"<<funcname<<","<<"ProtectedStruct:"<<ReturnTypeRefine(*argtype)<<"\n";
                                     std::string PS = "ProtectedStruct:"+ReturnTypeRefine(*argtype);
-                                    Resource->push_back(PS);
+                                    //if(!StructHasNamespace(argtype)){
+                                        Resource->push_back(PS);
+                                    //}
     						    }
     					    }
                         }
@@ -313,7 +333,9 @@ void LockPair::FindStoreAndCall(llvm::Instruction *Inst,llvm::Function* funcName
                                 llvm::Type* retgeptype= retstodesInst->getSourceElementType();
                                 //resultstream<<"FunctionName:"<<funcname<<","<<"ProtectedStruct:"<<ReturnTypeRefine(*retgeptype)<<"\n";
                                 std::string PS = "ProtectedStruct:"+ReturnTypeRefine(*retgeptype);
-                                Resource->push_back(PS);
+                                //if(!StructHasNamespace(retgeptype)){
+                                    Resource->push_back(PS);
+                                //}
                             }
                         }
                     }
@@ -336,7 +358,9 @@ void LockPair::FindStoreAndCall(llvm::Instruction *Inst,llvm::Function* funcName
                 llvm::Type* gepType= storegep->getSourceElementType();//如果这个变量是结构体成员，我们打印结构体类型。这里的处理是有缺陷的，如果store到GEP之间经过了别的语句，我这里就处理不出来了。
                 //resultstream<<"FunctionName:"<<funcname<<","<<"ProtectedStruct:"<<ReturnTypeRefine(*gepType)<<"\n";
                 std::string PS = "ProtectedStruct:"+ReturnTypeRefine(*gepType);
-                Resource->push_back(PS);
+                //if(!StructHasNamespace(gepType)){
+                    Resource->push_back(PS);
+                //}
             }
         }
     }
@@ -567,7 +591,7 @@ bool LockPair::LockPairMain(llvm::Function* F){
             int t=findway(LockPairVector,&LockPairSet,F);
         }
         if(!LockPairSet.empty()){
-            std::cout<<"递归查找完成，开始打印，Function name"<<F->getName().str()<<std::endl;
+            std::cout<<"递归查找完成，开始打印，Function name: "<<F->getName().str()<<std::endl;
             printLockPairSet(LockPairSet,F,&Resource);
             if(!Resource.empty()){
                 FuncResource[F] = Resource;
@@ -699,3 +723,153 @@ void LockPair::TravseIcmpUser(llvm::Instruction *icmpinst,llvm::Function *F,int 
     
     return; 
 }
+
+bool LockPair::StructHasNamespace(llvm::Type *Ty){//递归展开一个sturct底下的所有域
+    //std::cout<<"*********** Has Nmaespace  :  "<<ReturnTypeRefine(*Ty)<<"**********"<<std::endl;
+    std::set<std::string> TravsedStruct;//这里是把结构体里面的嵌套关系记录一下，只要我便利过这个结构体，我就不再展开了
+    std::string StructName = ReturnTypeRefine(*Ty);
+    int hasNamespace = 0;
+    std::vector<llvm::Type*> TravseStack;
+
+    /*if(Namespace.find(ReturnTypeRefine(*Ty)) != Namespace.end()){
+        TravseNamespace(Ty);
+    }*/
+    
+    if(Ty->isStructTy()){
+        TravseStack.push_back(Ty);
+    }
+    if(Ty->isPointerTy()){
+        llvm::Type *PointerTy = Ty->getPointerElementType();
+        if(PointerTy->isStructTy()){
+            TravseStack.push_back(PointerTy);
+        }
+    }
+    if(Ty->isArrayTy()){
+        llvm::Type * ArrayTy = Ty->getArrayElementType();
+        if(ArrayTy->isStructTy()){
+            TravseStack.push_back(ArrayTy);
+        }
+    }
+
+    while(!TravseStack.empty()){
+        //PrintSet(TravsedStruct,TravseStack);
+        llvm::Type *TravseTy = TravseStack.front();
+        auto it = TravseStack.begin();
+        TravseStack.erase(it);
+        std::string TyName = ReturnTypeRefine(*TravseTy);
+        if(TravsedStruct.find(TyName) != TravsedStruct.end() || TyName == "%struct.task_struct*"){
+            continue;
+        }else{
+            if(Namespace.find(TyName) != Namespace.end()){
+                std::cout<<"Found Namespace! "<<std::endl;
+                return true;
+            }
+            TravsedStruct.insert(TyName);
+            int ElementNum = TravseTy->getStructNumElements();
+            for(int i = 0;i < ElementNum; i++){
+                llvm::Type *RealmType = TravseTy->getStructElementType(i);
+                if(RealmType->isStructTy()){
+                    if(TravsedStruct.find(ReturnTypeRefine(*RealmType)) == TravsedStruct.end()){
+                        TravseStack.push_back(RealmType);
+                    }
+                }
+                if(RealmType->isPointerTy()){
+                    llvm::Type *PointerTy = RealmType->getPointerElementType();
+                    if(PointerTy->isStructTy()){
+                        if(TravsedStruct.find(ReturnTypeRefine(*PointerTy)) == TravsedStruct.end()){
+                            TravseStack.push_back(PointerTy);
+                        }
+                    }
+                }
+                if(RealmType->isArrayTy()){
+                    llvm::Type *ArrayTy = RealmType->getPointerElementType();
+                    if(ArrayTy->isStructTy()){
+                        if(TravsedStruct.find(ReturnTypeRefine(*ArrayTy)) == TravsedStruct.end()){
+                            TravseStack.push_back(ArrayTy);
+                        }
+                    }
+                }
+            }
+        }
+
+    }
+     
+    return false;
+}
+
+/*
+
+bool LockPair::TravseNamespace(llvm::Type *Ty){
+    std::cout<<"*********** Has Nmaespace  :  "<<ReturnTypeRefine(*Ty)<<"**********"<<std::endl;
+    std::set<std::string> TravsedStruct;
+    std::string StructName = ReturnTypeRefine(*Ty);
+    int hasNamespace = 0;
+    std::vector<llvm::Type*> TravseStack;
+    
+    if(Ty->isStructTy()){
+        TravseStack.push_back(Ty);
+    }
+    if(Ty->isPointerTy()){
+        llvm::Type *PointerTy = Ty->getPointerElementType();
+        if(PointerTy->isStructTy()){
+            TravseStack.push_back(PointerTy);
+        }
+    }
+    if(Ty->isArrayTy()){
+        llvm::Type * ArrayTy = Ty->getArrayElementType();
+        if(ArrayTy->isStructTy()){
+            TravseStack.push_back(ArrayTy);
+        }
+    }
+
+    while(!TravseStack.empty()){
+        //PrintSet(TravsedStruct,TravseStack);
+        llvm::Type *TravseTy = TravseStack.front();
+        auto it = TravseStack.begin();
+        TravseStack.erase(it);
+        std::string TyName = ReturnTypeRefine(*TravseTy);
+        if(TravsedStruct.find(TyName) != TravsedStruct.end() || TyName == "%struct.task_struct*"){
+            continue;
+        }else{
+            /*if(Namespace.find(TyName) != Namespace.end()){
+                std::cout<<"Found Namespace! "<<std::endl;
+                return true;
+            }
+            TravsedStruct.insert(TyName);
+            int ElementNum = TravseTy->getStructNumElements();
+            for(int i = 0;i < ElementNum; i++){
+                llvm::Type *RealmType = TravseTy->getStructElementType(i);
+                if(RealmType->isStructTy()){
+                    if(TravsedStruct.find(ReturnTypeRefine(*RealmType)) == TravsedStruct.end()){
+                        TravseStack.push_back(RealmType);
+                    }
+                }
+                if(RealmType->isPointerTy()){
+                    llvm::Type *PointerTy = RealmType->getPointerElementType();
+                    if(PointerTy->isStructTy()){
+                        if(TravsedStruct.find(ReturnTypeRefine(*PointerTy)) == TravsedStruct.end()){
+                            TravseStack.push_back(PointerTy);
+                        }
+                    }
+                }
+                if(RealmType->isArrayTy()){
+                    llvm::Type *ArrayTy = RealmType->getPointerElementType();
+                    if(ArrayTy->isStructTy()){
+                        if(TravsedStruct.find(ReturnTypeRefine(*ArrayTy)) == TravsedStruct.end()){
+                            TravseStack.push_back(ArrayTy);
+                        }
+                    }
+                }
+            }
+        }
+
+    }
+
+    std::cout<<"------namespace struct-----"<<std::endl;
+    for(auto it = TravsedStruct.begin();it != TravsedStruct.end();it++){
+        std::cout<<*it<<std::endl;
+    }
+     
+    return false;
+}
+*/

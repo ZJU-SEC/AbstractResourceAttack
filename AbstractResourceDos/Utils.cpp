@@ -250,3 +250,15 @@ std::string ReturnTypeRefine(llvm::Type &rt){           //截取掉返回值中%
 	}
 	return actual_type_str;
 }
+
+void PrintSet(std::set<std::string> StringSet,std::vector<llvm::Type*> TypeStack){
+	std::cout<<"---TravsedStruct---"<<std::endl;
+	for(auto it = StringSet.begin();it != StringSet.end();it++){
+		std::cout<<*it<<std::endl;
+	}
+	std::cout<<"---Stack---"<<std::endl;
+	for(auto it = TypeStack.begin();it != TypeStack.end();it++){
+		llvm::Type* Ty = *it;
+		std::cout<<ReturnTypeRefine(*Ty)<<std::endl;
+	}
+}
