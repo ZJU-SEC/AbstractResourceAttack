@@ -188,7 +188,7 @@ std::string print_debugloc(llvm::Instruction *instruction) {
 //	os << "}";
 }
 
-std::string ReturnTypeRefine(llvm::Type &rt){           //截取掉返回值中%struct.inode.xxxx*后面的这串数字
+std::string ReturnTypeRefine(llvm::Type &rt){           //Intercept the string of numbers after %struct.inode.xxxx* in the return value.
 	std::string ts;
 	std::string type_str;
 	std::string actual_type_str = "";
@@ -234,12 +234,12 @@ std::string ReturnTypeRefine(llvm::Type &rt){           //截取掉返回值中%
 	char *refined_type_str = strtok((char*)test_type_str.data(),".");
 	actual_type_str = actual_type_str + std::string(refined_type_str) + ".";
 	while(refined_type_str != NULL){
-		if(count == 2){//此处用于限定截取的内容块数，我们只需要第1(%struct)和第2(inode)这两个块
+		if(count == 2){//This is used to limit the number of intercepted content blocks. We only need the 1st (%struct) and 2nd (inode) blocks.
 			break;
 		}
 		refined_type_str = strtok(NULL,".");
-		if(refined_type_str == nullptr){//该判断用于针对i8*进行处理
-            actual_type_str.pop_back();//此处由于之间加.i8*会变成i8*.，因此此处去掉.
+		if(refined_type_str == nullptr){//This judgment is used to process i8*.
+            actual_type_str.pop_back();//Here, adding .i8* will become i8*., so it is removed here.
 			break;
 		}
 		actual_type_str = actual_type_str + std::string(refined_type_str);
