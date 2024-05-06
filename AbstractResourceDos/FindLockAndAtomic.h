@@ -11,7 +11,7 @@
 
 class FindLockAndAtomic{
     public:
-        FindLockAndAtomic(llvm::Module &);//公有方法，用来暴露私有对象
+        FindLockAndAtomic(llvm::Module &);//Public methods, used to expose private objects
         std::set<std::string> GetSpinLock();
         std::set<std::string> GetSpinUnlock();
         std::set<std::string> GetAtomicFunc();
