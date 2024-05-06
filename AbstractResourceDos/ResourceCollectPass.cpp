@@ -10,35 +10,36 @@ std::error_code ec;
 llvm::raw_fd_ostream resultstream("./cmp-finder.txt", ec, llvm::sys::fs::OF_Text | llvm::sys::fs::OF_Append);
 llvm::raw_fd_ostream pathstream("./path-finder.txt", ec, llvm::sys::fs::OF_Text | llvm::sys::fs::OF_Append);
 /*
-	runOnModule是pass的主函数。
+	runOnModule is the main function of pass.
 */
 bool ResourceCollectPass::runOnModule(llvm::Module &M) {
-	LockPair LP = LockPair(M);                       //实例化一个LockPair的对象，我们把找锁所在结构体的内容也加到了LockPair里面去
+	LockPair LP = LockPair(M);                       //Instantiate a LockPair object. We also add the contents of the structure where the lock is located to the LockPair.
 	LP.CollectLockAndAtomic();	 				
 	auto &functionList = M.getFunctionList();
 	bool CanTriger = false;
-    for (auto &function : functionList) {                      //遍历module的所有Function 
+    for (auto &function : functionList) {                      //Traverse all functions of module
 		if (LP.IsInitFunction(&function))
 			continue;
 		std::string FuncName = function.getName().str();
 
 			LP.LockPairMain(&function);
-			LP.LockAtomicResource(&function);//这个函数的核心是收集lock/atomic全局参数&所在的结构体,在这里,我需要修改为,对于全局变量,只收集atomic,不收集lock
+	    		//The core of this function is to collect the structure where the lock/atomic global parameters & are located. Here, I need to modify it to, for global variables, only collect atomic and not lock.
+			LP.LockAtomicResource(&function);
 			LP.MarkRlimitControlFunc(&function);	
     }
 	LP.Test();
 
-	for (auto &mapit : LP.FuncResource){	//这里我们形成了一个map,存放的是不经过call处理的所有找出的敏感函数。
+	for (auto &mapit : LP.FuncResource){	//Here we form a map that stores all found sensitive functions without call processing.
 		if(SysCallPath(mapit.first,LP.RlimitControlFunc)){
 			auto Resource = mapit.second;
 			for(auto it = Resource.begin();it != Resource.end();it++){
 				resultstream<<"FunctionName:"<<mapit.first->getName().str()<<","<<*it<<"\n";
 			}
-		}//这里对应if(SysCallPath)
+		}//This corresponds to if(SysCallPath)
 	}
 	//LP.Test();
-//如果需要单独运行ctl_table相关内容,需要将17-66行的内容注释掉	
-	CtlTableAnalysis CT = CtlTableAnalysis(M);  //43和44行用于跑新加的CtlTableAnalysis。
+//If you need to run ctl_table related content separately, you need to comment out the contents of lines 17-66.
+	CtlTableAnalysis CT = CtlTableAnalysis(M);  //Lines 43 and 44 are used to run the newly added CtlTableAnalysis.
 	CT.Test();
 
 	std::cout<<"After ResourceCollect "<<std::endl;
@@ -46,13 +47,14 @@ bool ResourceCollectPass::runOnModule(llvm::Module &M) {
 }
 
 /*
-	traceTaskEntry:获得所有从syscall到目标函数的路径集合，第一个参数传入目标函数的callsite(目标函数的caller)，result_path是获得的结果，包含多条从目标函数到entry的路径。
+	traceTaskEntry:Obtain the set of all paths from syscall to the target function. The first parameter is passed into the callsite of the target function (the caller of the target function). 
+ 		       result_path is the obtained result, which contains multiple paths from the target function to the entry.
 */
 void ResourceCollectPass::traceTaskEntry(int indirectcount, std::vector<llvm::CallInst*> &ci_stack, std::set<std::vector<llvm::CallInst*> > &result_path, const std::map<llvm::Function*, llvm::CallInst *> &free_sites) {
     auto top_ci = ci_stack.back();
     auto top_fn = top_ci->getFunction();
 
-    if (ci_stack.size() == 13 || free_sites.find(top_fn) != free_sites.end() || result_path.size() >= 100) 	//这里设置了递归深度为7,用来限制规模
+    if (ci_stack.size() == 13 || free_sites.find(top_fn) != free_sites.end() || result_path.size() >= 100) 	//Here, the recursion depth is set to 7 to limit the scale.
         return;
 	if (top_fn == nullptr) {
 		llvm::errs() << "Cannot find function holding the CallInst: " << *top_ci << "\n";
@@ -98,7 +100,7 @@ bool ResourceCollectPass::SysCallPath(llvm::Function* F,std::set<llvm::Function*
         	traceTaskEntry(indirectcount,temp_ci, result_paths, emptymap);
 		if(!result_paths.empty()){
 			CanTriger = true;
-			for (auto &path : result_paths) {                             //打印所有从目标函数到syscall的路径
+			for (auto &path : result_paths) {                             //Print all paths from target function to syscall.
             	for (auto &hop : path) {
 					if(RlimitControlFunc.find(hop->getFunction()) != RlimitControlFunc.end()){
 						goto here;
@@ -115,7 +117,7 @@ bool ResourceCollectPass::SysCallPath(llvm::Function* F,std::set<llvm::Function*
 		if(CanTriger){
 				//pathstream<<"SensitiveFunction:"<<F->getName().str()<<"\n";
 				//pathstream<<"path is below"<<"\n";
-				for (auto &path : resultmark_paths) {                             //打印所有从目标函数到syscall的路径
+				for (auto &path : resultmark_paths) {                             //Print all paths from target function to syscall.
 					//pathstream<< "@" <<F->getName().str();
             		for (auto &hop : path) {
 //						if(RlimitControlFunc.find(hop->getFunction()) != RlimitControlFunc.end()){
