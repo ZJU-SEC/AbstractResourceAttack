@@ -44,9 +44,9 @@ void LockPair::Test(){
     std::cout<<"Total Struct:"<<NsStruct.size()<<"\n";
 }
 
-void LockPair::CollectLockAndAtomic(){//这里替代了我们之前从文件中getline的操作
-    FindLockAndAtomic FLA = FindLockAndAtomic(*_module_);   //先设置一个实例化的对象。
-    FLA.FindLock(); //这里设置所有的东西
+void LockPair::CollectLockAndAtomic(){//This replaces our previous operation of getline from the file.
+    FindLockAndAtomic FLA = FindLockAndAtomic(*_module_);   //First set up an instantiated object.
+    FLA.FindLock(); //Set everything here.
     spin_lock = FLA.GetSpinLock();
     spin_unlock = FLA.GetSpinUnlock();
     mutex_lock = FLA.GetMutexLock();
@@ -65,45 +65,46 @@ void LockPair::CollectLockAndAtomic(){//这里替代了我们之前从文件中g
 	spin_unlock.insert(write_unlock.begin(),write_unlock.end());
 }
 
-int LockPair::getBBID(llvm::BasicBlock* BB){//拿到一个BB的，返回BB的编号。
+int LockPair::getBBID(llvm::BasicBlock* BB){//If you get a BB, return the BB number.
     std::string ts;
     std::string BBID;
     llvm::raw_string_ostream rso(ts);
-    BB->printAsOperand(rso,false);//pinrAsOperand的作用是打出BB的编号％xx，写到rso stream里面
+    BB->printAsOperand(rso,false);//The function of pinrAsOperand is to type out the BB number %xx and write it into the rso stream.
     BBID = rso.str();
-    BBID = BBID.substr(1,BBID.length());//截掉第一个%
-    int BBIDint = atoi(BBID.c_str());//把xx的string转为int.
+    BBID = BBID.substr(1,BBID.length());//Cut off the first %
+    int BBIDint = atoi(BBID.c_str());//Convert the string of xx to int.
     return BBIDint;
 }
 
-char* LockPair::GetActualFName(std::string &functionname){   //获得函数的名字即截取掉atomic.xxxx后面这串数字,此处functionname为被call的函数名.
+char* LockPair::GetActualFName(std::string &functionname){   //To obtain the name of the function, intercept the string of numbers after atomic.xxxx, where functionname is the name of the function being called.
 	std::string mystr;
 	char *FName = (char*)functionname.data();
 	char *ActualFName = strtok(FName,".");
-    functionname = ActualFName;//传进来的是个指针，在此处赋值，直接可以修改指针的对象，就是functionname
+    functionname = ActualFName;//What is passed in is a pointer. If you assign a value here, you can directly modify the object of the pointer, which is functionname.
 	while(ActualFName != NULL){
-		ActualFName = strtok(NULL,".");//第二次截取，内容为atomic.xxxxx的xxxx.
+		ActualFName = strtok(NULL,".");//The second interception contains xxxx of atomic.xxxxx.
 		break;
 	}
 
-    return ActualFName;//此处ActualName实际是atomic后面的数字,functionname为真实的atomic
+    return ActualFName;//Here ActualName is actually the number after atomic, and functionname is the real atomic.
 }
-llvm::Type* LockPair::GetActualStructType(llvm::Instruction *gepInst,std::string funName,llvm::Type *originTy){    //传入GEP Instruction和函数名（函数名主要用来调试），返回真实的结构体类型。
+llvm::Type* LockPair::GetActualStructType(llvm::Instruction *gepInst,std::string funName,llvm::Type *originTy){    //Pass in GEP Instruction and function name (function name is mainly used for debugging), and return the real structure type.
 	std::cout<<"-Functiaon Name-:"<<funName<<std::endl;
-	for(auto operand = gepInst->operands().begin();operand != gepInst->operands().end();++operand){ //遍历Gep Instruction的operand
-		if(llvm::CallInst *callInst = llvm::dyn_cast<llvm::CallInst>(operand)){              //如果该operand对应的是一句call语句
-			if(llvm::Function *voidFunc = llvm::dyn_cast<llvm::Function>(callInst->getCalledOperand()->stripPointerCasts())){//通过这个方法获取call函数名是因为会遇到call bitcast这种case，直接用getName()会报错。
+	for(auto operand = gepInst->operands().begin();operand != gepInst->operands().end();++operand){ //Traverse the operand of Gep Instruction
+		if(llvm::CallInst *callInst = llvm::dyn_cast<llvm::CallInst>(operand)){              //If the operand corresponds to a call statement
+			if(llvm::Function *voidFunc = llvm::dyn_cast<llvm::Function>(callInst->getCalledOperand()->stripPointerCasts())){//The reason for obtaining the call function name through this method is that in cases like call bitcast, using getName() directly will report an error.
 				std::cout<<"void Call to => " << voidFunc ->getName().str() << "\n";
 				std::string ActualAllocFuncName  = voidFunc->getName().str();
-				if(AllocFunctionNames.find(ActualAllocFuncName) != AllocFunctionNames.end()){ //判断call的是不是kmalloc函数
+				if(AllocFunctionNames.find(ActualAllocFuncName) != AllocFunctionNames.end()){ //Determine whether the call is the kmalloc function
 					llvm::Value *kmVar = llvm::dyn_cast<llvm::Value>(callInst);
-					if(!kmVar->use_empty()){                                                //如果是kmalloc函数，找kmalloc的user
+					if(!kmVar->use_empty()){                                                //If it is the kmalloc function, find the user of kmalloc
 						for(llvm::Value::use_iterator UB=kmVar->use_begin(),UE=kmVar->use_end();UB!=UE;++UB){
-							llvm::User* user=UB->getUser();                                    //一般情况下kmalloc的紧接的user中就有bitcast将kamalloc分配的i8*转换为真实的结构体。所以我们只需要在第一次user里找bitcast语句就行
+							//Under normal circumstances, there is bitcast in the user immediately following kmalloc to convert the i8* allocated by kamalloc into a real structure. So we only need to find the bitcast statement in the first user
+							llvm::User* user=UB->getUser();                                    
 							if(llvm::Instruction* userInst = llvm::dyn_cast<llvm::Instruction>(user)){      
-								if(userInst->getOpcode() == llvm::Instruction::BitCast){        //找出bitcast语句
+								if(userInst->getOpcode() == llvm::Instruction::BitCast){        //Find the bitcast statement
 									llvm::Value *userVar = llvm::dyn_cast<llvm::Value>(userInst);
-									llvm::Type *userType = userVar->getType();                  //bitcast语句对应的Value的TypeName就是要找的真实结构体。
+									llvm::Type *userType = userVar->getType();                  //The TypeName of Value corresponding to the bitcast statement is the real structure you are looking for.
                                     return userType; 
 								}
 							}
@@ -112,7 +113,7 @@ llvm::Type* LockPair::GetActualStructType(llvm::Instruction *gepInst,std::string
 				}
 			}
 		}
-		if(llvm::Instruction *Inst = llvm::dyn_cast<llvm::Instruction>(operand)){   //调试用，调试gep指令和call kmalloc函数之间还会不会有别的语句。
+		if(llvm::Instruction *Inst = llvm::dyn_cast<llvm::Instruction>(operand)){   //For debugging, will there be any other statements between the debugging gep instruction and the call kmalloc function.
 			if(Inst->getOpcode() == llvm::Instruction::BitCast){
 				std::cout<<"Has a BitCast Middle"<<std::endl;
 			}
@@ -136,11 +137,11 @@ void LockPair::id_phi_inst(llvm::Function* funcname,llvm::Instruction* I,std::ve
                     Resource->push_back(GB);
                 }
             }
-            llvm::Type *structType = GEP->getSourceElementType();//此处获取GEP指令的struct
-			if(ReturnTypeRefine(*structType) == "i8*"){            //如果GEP指令中的结构体是i8*,需要特殊处理以下来找出真实的结构体。
+            llvm::Type *structType = GEP->getSourceElementType();//Get the struct of the GEP instruction here
+			if(ReturnTypeRefine(*structType) == "i8*"){            //If the structure in the GEP instruction is i8*, special processing is required to find out the real structure.
 				std::string ActualStructType;
                 llvm::Type *ActualTy = GetActualStructType(GEP,FuncName,structType);
-				ActualStructType = ReturnTypeRefine(*ActualTy);    //调用GetActualStructType来获得真实结构体。
+				ActualStructType = ReturnTypeRefine(*ActualTy);    //Call GetActualStructType to get the actual structure.
                 std::string PS = "ProtectedStruct:" + ActualStructType;
                 if(!StructHasNamespace(ActualTy,FuncName)){
                     Resource->push_back(PS);  
@@ -170,9 +171,10 @@ void LockPair::id_phi_inst(llvm::Function* funcname,llvm::Instruction* I,std::ve
 	return;
 }
 
-void LockPair::TravseAllocUser(llvm::Function* func,llvm::Instruction* originv,std::vector<std::string>* Resource){   //传进来的Instruction是函数参数Value对应的Instruction，有可能是Call语句，Gep指令或者Phi指令，load指令，这里对Call,Gep,load语句作特殊处理
+void LockPair::TravseAllocUser(llvm::Function* func,llvm::Instruction* originv,std::vector<std::string>* Resource){  
+//The Instruction passed in is the Instruction corresponding to the function parameter Value. It may be a Call statement, a Gep instruction or a Phi instruction, or a load instruction. The Call, Gep, and load statements are specially processed here.
     std::string testfuncName=func->getName().str();
-	if(originv->getOpcode() == llvm::Instruction::GetElementPtr){      //第一种情况，对应的是GEP指令，说明我们可以从这获取结构体了。
+	if(originv->getOpcode() == llvm::Instruction::GetElementPtr){      //The first case corresponds to the GEP instruction, which means we can get the structure from here.
 		llvm::GetElementPtrInst *gepinst = llvm::dyn_cast<llvm::GetElementPtrInst>(originv);
         llvm::Value *GepOperand = gepinst->getOperand(0);
         if(llvm::GlobalValue* G=llvm::dyn_cast<llvm::GlobalValue>(GepOperand)){
@@ -182,11 +184,11 @@ void LockPair::TravseAllocUser(llvm::Function* func,llvm::Instruction* originv,s
                 return;
             }
         }
-		llvm::Type *structType = gepinst->getSourceElementType();//此处获取GEP指令的struct
-		if(ReturnTypeRefine(*structType) == "i8*"){            //如果GEP指令中的结构体是i8*,需要特殊处理以下来找出真实的结构体。
+		llvm::Type *structType = gepinst->getSourceElementType();//Get the struct of the GEP instruction here
+		if(ReturnTypeRefine(*structType) == "i8*"){            //If the structure in the GEP instruction is i8*, special processing is required to find out the real structure.
 			std::string ActualStructType;
             llvm::Type *ActualTy = GetActualStructType(originv,testfuncName,structType);
-			ActualStructType = ReturnTypeRefine(*ActualTy);   //调用GetActualStructType来获得真实结构体。
+			ActualStructType = ReturnTypeRefine(*ActualTy);   //Call GetActualStructType to get the actual structure.
             std::string PS = "ProtectedStruct:" + ActualStructType;
             
             if(!StructHasNamespace(ActualTy,testfuncName)){
@@ -215,16 +217,17 @@ void LockPair::TravseAllocUser(llvm::Function* func,llvm::Instruction* originv,s
         }
     }
 
-	if(llvm::CallInst *callInst = llvm::dyn_cast<llvm::CallInst>(originv)){              //如果对应的是 callInst，那么说明这个Value就是call的结果，我这里直接把call函数的返回值类型打出来？
+	if(llvm::CallInst *callInst = llvm::dyn_cast<llvm::CallInst>(originv)){              //If it corresponds to callInst, then it means that this Value is the result of call. Can I directly type the return value type of the call function here?
         if(llvm::Function *called = callInst->getCalledFunction()){
             std::string CalledName = called->getName().str();
             if(AllocFunctionNames.find(CalledName) != AllocFunctionNames.end()){
                 llvm::Value *kmVar = llvm::dyn_cast<llvm::Value>(callInst);
-				if(!kmVar->use_empty()){                                                //如果是kmalloc函数，找kmalloc的user
+				if(!kmVar->use_empty()){                                                //If it is the kmalloc function, find the user of kmalloc.
 					for(llvm::Value::use_iterator UB=kmVar->use_begin(),UE=kmVar->use_end();UB!=UE;++UB){
-						llvm::User* user=UB->getUser();                                    //一般情况下kmalloc的紧接的user中就有bitcast将kamalloc分配的i8*转换为真实的结构体。所以我们只需要在第一次user里找bitcast语句就行
+						//Under normal circumstances, there is bitcast in the user immediately following kmalloc to convert the i8* allocated by kamalloc into a real structure. So we only need to find the bitcast statement in the first user.
+						llvm::User* user=UB->getUser();                                    
 						if(llvm::Instruction* userInst = llvm::dyn_cast<llvm::Instruction>(user)){      
-							if(userInst->getOpcode() == llvm::Instruction::BitCast){        //找出bitcast语句
+							if(userInst->getOpcode() == llvm::Instruction::BitCast){        //Find the bitcast statement
 								llvm::Value *userVar = llvm::dyn_cast<llvm::Value>(userInst);
 								llvm::Type *userType = userVar->getType();                  
                                 std::string PS = "ProtectedStruct:" + ReturnTypeRefine(*userType);
@@ -253,9 +256,10 @@ void LockPair::TravseAllocUser(llvm::Function* func,llvm::Instruction* originv,s
         id_phi_inst(func,originv,Resource);
     }
 
-	for (auto operand = originv->operands().begin();operand != originv->operands().end();++operand){  //如果对应的是普通语句，则正常遍历他的operands来递归。
+	for (auto operand = originv->operands().begin();operand != originv->operands().end();++operand){  //If the corresponding statement is an ordinary statement, its operands are traversed normally to recurse.
 		llvm::Value *opValue = llvm::dyn_cast<llvm::Value>(operand);
-		if(llvm::Instruction *opInst = llvm::dyn_cast<llvm::Instruction>(opValue)){//这一句用来判断是F函数的参数，经过调试知道，如果这个Value不能强制转换为Instruction了，那么代表它是函数参数了。
+		if(llvm::Instruction *opInst = llvm::dyn_cast<llvm::Instruction>(opValue)){
+			//This sentence is used to determine whether it is a parameter of the F function. After debugging, we know that if the Value cannot be forced to be converted to an Instruction, it means that it is a function parameter.
 			for(auto travop = opInst->operands().begin();travop!=opInst->operands().end();++travop){
 				if(llvm::Instruction *travopIns=llvm::dyn_cast<llvm::Instruction>(travop))
 				{
@@ -279,7 +283,7 @@ void LockPair::TravseAllocUser(llvm::Function* func,llvm::Instruction* originv,s
 		return;
 }
 
-bool LockPair::FindChangArg(llvm::Function * funcname, int offset){//这里相当于输入了funcA: call funcB中的funcB和对应指针类型函数的偏移量
+bool LockPair::FindChangArg(llvm::Function * funcname, int offset){//This is equivalent to inputting funcB in funcA: call funcB and the offset of the corresponding pointer type function.
     std::cout<<"into FindChangeArg"<<std::endl;
     if(llvm::Value * offsetarg=funcname->getArg(offset)){
         if(!offsetarg->user_empty()){
@@ -291,10 +295,10 @@ bool LockPair::FindChangArg(llvm::Function * funcname, int offset){//这里相�
                         for(auto gepVuser=gepV->user_begin();gepVuser!=gepV->user_end();gepVuser++){
                             if(llvm::StoreInst * gepVuserStore=llvm::dyn_cast<llvm::StoreInst>(*gepVuser)){
                                 std::cout<<"Try to GetStore A to B's B"<<std::endl;
-                                llvm::Value * StoreTo=gepVuserStore->getPointerOperand();//这里相当于是对store A to B中拿了B
+                                llvm::Value * StoreTo=gepVuserStore->getPointerOperand();//This is equivalent to taking B from store A to B.
                                 std::cout<<" Got the Bravo"<<std::endl;
-                                if(StoreTo==gepV){//如果B是之前的GEP结果
-                                //这里需要递归展开A,如果A来自于add/sub等运算，那么我们认为这个地方对这个Arg的修改就是有效的．
+                                if(StoreTo==gepV){//If B is the previous GEP result
+                                //Here we need to recursively expand A. If A comes from operations such as add/sub, then we think that the modification of this Arg in this place is valid.
                                     bool confirmcount = ConfirmCountotherlayer(gepVuserStore);
                                     if(confirmcount){
                                         return true;
@@ -311,7 +315,7 @@ bool LockPair::FindChangArg(llvm::Function * funcname, int offset){//这里相�
 }
 void LockPair::FindStoreAndCall(llvm::Instruction *Inst,llvm::Function* funcName,std::vector<std::string> *Resource, std::set<llvm::Instruction *> LockProtectIns){
     std::string funcname=funcName->getName().str();
-    if(llvm::CallInst *TestcallInst=llvm::dyn_cast<llvm::CallInst>(Inst)){//如果在lock之后抓住了call
+    if(llvm::CallInst *TestcallInst=llvm::dyn_cast<llvm::CallInst>(Inst)){//If call is caught after lock
         if(llvm::Function *called = TestcallInst->getCalledFunction()){
             std::string calledFuncName = called->getName().str();
             if((spin_lock.find(calledFuncName)!=spin_lock.end())||(spin_unlock.find(calledFuncName)!=spin_unlock.end())||(atomic_function.find(calledFuncName)!=atomic_function.end())||(percpu_function.find(calledFuncName)!=percpu_function.end())){
@@ -332,17 +336,20 @@ void LockPair::FindStoreAndCall(llvm::Instruction *Inst,llvm::Function* funcName
 //                }
 //            }
 
-            for(auto arglb=TestcallInst->arg_begin(),argle=TestcallInst->arg_end();arglb!=argle;arglb++){//所以这里对应抓到call参数，遍历call语句的每个参数，如果是量化的修改，
-            //则找到参数对应的资源（如果是结构体，打印结构体来源，如果是变量，需要去看变量来自哪里，如果来自函数参数，打印变量，如果是全局变量，打印变量名)
+            for(auto arglb=TestcallInst->arg_begin(),argle=TestcallInst->arg_end();arglb!=argle;arglb++){
+	    //So this corresponds to capturing the call parameters and traversing each parameter of the call statement. If it is a quantitative modification,
+            //Then find the resource corresponding to the parameter.
+	    //if it is a structure, print the source of the structure, if it is a variable, you need to see where the variable comes from, if it comes from a function parameter, print the variable, if it is a global variable, print the variable name.
                 if(llvm::Value *argValue = llvm::dyn_cast<llvm::Value>(arglb)){
                     if(argValue->getType()->isPointerTy()){
                         int offset=arglb->getOperandNo();
                         bool argmodified=FindChangArg(called, offset);
                         if(argmodified){
-                            for(auto argF=funcName->arg_begin();argF!=funcName->arg_end();argF++){//这个判断的作用是，如果arg为Ｆ本身的arg,那么就是对Ｆ传进来的参数做了操作，我们就应该直接打印参数类型。
+                            for(auto argF=funcName->arg_begin();argF!=funcName->arg_end();argF++){
+				//The function of this judgment is that if arg is the arg of F itself, then the parameters passed in by F have been operated, and we should print the parameter type directly.
                                 if(llvm::Value * argnamed=llvm::dyn_cast<llvm::Value>(argF)){  
                                     if(argnamed==argValue){
-                                        if(llvm::GlobalValue* AtomicG=llvm::dyn_cast<llvm::GlobalValue>(argF)){//如果参数有名字，说明是个全局变量，打印参数名字。
+                                        if(llvm::GlobalValue* AtomicG=llvm::dyn_cast<llvm::GlobalValue>(argF)){//If the parameter has a name, it means it is a global variable and the parameter name is printed.
                                             if(!llvm::dyn_cast<llvm::Function>(argValue)){
                                                 if(!CheckGlobalVariable(AtomicG)) {
                                                     std::string GB = "Global Variable:"+argF->getName().str();
@@ -350,7 +357,7 @@ void LockPair::FindStoreAndCall(llvm::Instruction *Inst,llvm::Function* funcName
                                                 }
                                             }
                                         }
-                                        llvm::Type* argtype= argValue->getType();//如果函数参数没名字，说明是个局部变量参数，那我这里就把参数类型打印出来就好。
+                                        llvm::Type* argtype= argValue->getType();//If the function parameter has no name, it means it is a local variable parameter, so I just print the parameter type here.
                                         std::string PS = "ProtectedStruct:"+ReturnTypeRefine(*argtype);
                                         if(!StructHasNamespace(argtype,funcname)){
                                             Resource->push_back(PS);
@@ -358,7 +365,7 @@ void LockPair::FindStoreAndCall(llvm::Instruction *Inst,llvm::Function* funcName
     						        }
     					        }
                             }
-                            if(llvm::GlobalValue* AtomicG=llvm::dyn_cast<llvm::GlobalValue>(arglb)){//如果call语句的参数为全局变量，直接打印。
+                            if(llvm::GlobalValue* AtomicG=llvm::dyn_cast<llvm::GlobalValue>(arglb)){//If the parameter of the call statement is a global variable, it is printed directly.
                                 if(!llvm::dyn_cast<llvm::Function>(argValue)){
                                     if(!CheckGlobalVariable(AtomicG)) {
                                         std::string GB = "Global Variable:"+AtomicG->getName().str();
@@ -366,8 +373,8 @@ void LockPair::FindStoreAndCall(llvm::Instruction *Inst,llvm::Function* funcName
                                     }
                                 }    
                             }
-    			            if(llvm::Instruction *argInst=llvm::dyn_cast<llvm::Instruction>(arglb)){//如果既不是全局变量，又不是Ｆ函数的参数，本身又不是个结构体，那么需要分析内部call的参数来源。
-                                TravseAllocUser(funcName,argInst,Resource);//这里是传入lock函数参数的Instruction和F的名字，因为你如果在lock/unlock中间调用了call语句，那么要不是call的参数产生了变化，要不就是call的返回值存储到了哪里。
+    			            if(llvm::Instruction *argInst=llvm::dyn_cast<llvm::Instruction>(arglb)){//If it is neither a global variable nor a parameter of the F function, nor is it a structure itself, then the source of the parameters of the internal call needs to be analyzed.
+                                TravseAllocUser(funcName,argInst,Resource);//Here are the names of the Instruction and F passed into the lock function parameters, because if you call the call statement between lock/unlock, then either the parameters of the call have changed, or where the return value of the call is stored.
                             }
                         }        													
 			        }
@@ -376,7 +383,7 @@ void LockPair::FindStoreAndCall(llvm::Instruction *Inst,llvm::Function* funcName
         }
 
         if(llvm::Value * callreturnValue=llvm::dyn_cast<llvm::Value>(TestcallInst)){
-            if(!callreturnValue->user_empty()){  //少加了！号
+            if(!callreturnValue->user_empty()){  //Did not add "!"
                 for(auto calluser=callreturnValue->user_begin();calluser!=callreturnValue->user_end();calluser++){
                     if(llvm::StoreInst * returnStore=llvm::dyn_cast<llvm::StoreInst>(*calluser)){
                         if(llvm::Value * returnStoredetination= returnStore->getOperand(1)){
@@ -402,10 +409,10 @@ void LockPair::FindStoreAndCall(llvm::Instruction *Inst,llvm::Function* funcName
         }
     }
 
-    if(llvm::StoreInst * teststoreInst=llvm::dyn_cast<llvm::StoreInst>(Inst)){//如果在lock之后抓到了store
+    if(llvm::StoreInst * teststoreInst=llvm::dyn_cast<llvm::StoreInst>(Inst)){//If the store is caught after lock
         bool confirmcount = ConfirmCount(teststoreInst,LockProtectIns);
         llvm::Value * storeValuet= teststoreInst->getOperand(1);
-        if(llvm::GlobalValue* G=llvm::dyn_cast<llvm::GlobalValue>(storeValuet)){//如果store的对象有名字，这是个全局变量，我们直接打印。
+        if(llvm::GlobalValue* G=llvm::dyn_cast<llvm::GlobalValue>(storeValuet)){//If the store object has a name, it is a global variable and we print it directly.
             if(!llvm::dyn_cast<llvm::Function>(storeValuet)){
                 if(!CheckGlobalVariable(G) && confirmcount) {
                     std::string GB = "Global Variable:"+storeValuet->getName().str();
@@ -413,9 +420,9 @@ void LockPair::FindStoreAndCall(llvm::Instruction *Inst,llvm::Function* funcName
                 } 
             }
         }
-        if(llvm::Instruction * storeInstruction = llvm::dyn_cast<llvm::Instruction>(storeValuet)){//如果store的不是个全局变量，我们要用GEP看这个变量来自哪里
+        if(llvm::Instruction * storeInstruction = llvm::dyn_cast<llvm::Instruction>(storeValuet)){//If the store is not a global variable, we need to use GEP to see where the variable comes from.
             if(llvm::GetElementPtrInst * storegep= llvm::dyn_cast<llvm::GetElementPtrInst>(storeInstruction)){
-                llvm::Type* gepType= storegep->getSourceElementType();//如果这个变量是结构体成员，我们打印结构体类型。这里的处理是有缺陷的，如果store到GEP之间经过了别的语句，我这里就处理不出来了。
+                llvm::Type* gepType= storegep->getSourceElementType();//If the variable is a structure member, we print the structure type. The processing here is flawed. If other statements pass between store and GEP, I cannot handle it here.
                 std::string PS = "ProtectedStruct:"+ReturnTypeRefine(*gepType);
                 if(!StructHasNamespace(gepType,funcname) && confirmcount){
                     Resource->push_back(PS);
@@ -485,7 +492,7 @@ bool LockPair::ConfirmCountotherlayer(llvm::Instruction *ins)
     auto Opcode = store_ins->getOpcode();
     std::vector<llvm::Instruction *> TravseStack;
 
-    if(Opcode >= 13 && Opcode <= 16 ) {  //运算指令的枚举值从13-30
+    if(Opcode >= 13 && Opcode <= 16 ) {  //The enumeration value of operation instructions ranges from 13-30
         //llvm::outs()<<"find count op: "<<*store_ins<<"\n";
         return true;
     }
@@ -503,7 +510,7 @@ bool LockPair::ConfirmCountotherlayer(llvm::Instruction *ins)
             llvm::Value *op_var = llvm::dyn_cast<llvm::Value>(opd);
             if(llvm::Instruction *op_ins = llvm::dyn_cast<llvm::Instruction>(op_var)) {
                 auto travse_op = op_ins->getOpcode();
-                if(travse_op >= 13 && travse_op <= 16) {  //运算指令的枚举值从13-30
+                if(travse_op >= 13 && travse_op <= 16) {  //The enumeration value of operation instructions ranges from 13-30
                     //llvm::outs()<<"find count op: "<<*op_ins<<"\n";
                     return true;
                 }
@@ -534,7 +541,7 @@ bool LockPair::ConfirmCount(llvm::Instruction *ins, std::set<llvm::Instruction *
     std::vector<llvm::Instruction *> TravseStack;
 
     if(Opcode >= 13 && Opcode <= 16 &&                     \
-            LockProtectIns.find(store_ins) != LockProtectIns.end()) {  //运算指令的枚举值从13-30
+            LockProtectIns.find(store_ins) != LockProtectIns.end()) {  //The enumeration value of operation instructions ranges from 13-30
         //llvm::outs()<<"find count op: "<<*store_ins<<"\n";
         return true;
     }
@@ -553,7 +560,7 @@ bool LockPair::ConfirmCount(llvm::Instruction *ins, std::set<llvm::Instruction *
             if(llvm::Instruction *op_ins = llvm::dyn_cast<llvm::Instruction>(op_var)) {
                 auto travse_op = op_ins->getOpcode();
                 if(travse_op >= 13 && travse_op <= 16 &&                              \
-                    LockProtectIns.find(travse_ins) != LockProtectIns.end()) {  //运算指令的枚举值从13-30
+                    LockProtectIns.find(travse_ins) != LockProtectIns.end()) {  //The enumeration value of operation instructions ranges from 13-30
                     //llvm::outs()<<"find count op: "<<*op_ins<<"\n";
                     return true;
                 }
@@ -572,30 +579,30 @@ bool LockPair::ConfirmCount(llvm::Instruction *ins, std::set<llvm::Instruction *
     return false;
 }
 
-void LockPair::printLockPairSet(std::vector<std::pair<std::pair<llvm::BasicBlock::iterator,llvm::BasicBlock::iterator>,std::vector<llvm::BasicBlock*>>>  LockPairSet,llvm::Function* funcName,std::vector<std::string>* Resource){//传进来的就是记录一个函数中
+void LockPair::printLockPairSet(std::vector<std::pair<std::pair<llvm::BasicBlock::iterator,llvm::BasicBlock::iterator>,std::vector<llvm::BasicBlock*>>>  LockPairSet,llvm::Function* funcName,std::vector<std::string>* Resource){//What is passed in is recorded in a function
     std::string funcname=funcName->getName().str();
-    for(auto SetIt = LockPairSet.begin();SetIt != LockPairSet.end();SetIt++){//这里取的是vector中的其中一个pair,相当于一对锁和经过的BB
-        std::pair<std::pair<llvm::BasicBlock::iterator,llvm::BasicBlock::iterator>,std::vector<llvm::BasicBlock*>> LockPairWithBB = *SetIt;//取出一对pair.还是for遍历的一个锁对和经过的BB
-        std::pair<llvm::BasicBlock::iterator,llvm::BasicBlock::iterator> LockPair = LockPairWithBB.first;//因为是个pair,first就是我要的起点终点锁对，是个pair.
-        std::vector<llvm::BasicBlock*> BBroute = LockPairWithBB.second;//second就是经过的BB的集合。是个vector
+    for(auto SetIt = LockPairSet.begin();SetIt != LockPairSet.end();SetIt++){//What is taken here is one of the pairs in the vector, which is equivalent to a pair of locks and a passing BB.
+        std::pair<std::pair<llvm::BasicBlock::iterator,llvm::BasicBlock::iterator>,std::vector<llvm::BasicBlock*>> LockPairWithBB = *SetIt;//Take out a pair. Or a lock pair traversed by for and the passed BB.
+        std::pair<llvm::BasicBlock::iterator,llvm::BasicBlock::iterator> LockPair = LockPairWithBB.first;//Because it is a pair, first is the starting and ending point lock pair I want, and it is a pair.
+        std::vector<llvm::BasicBlock*> BBroute = LockPairWithBB.second;//second is the set of passing BBs. It is a vector.
         llvm::Instruction * LockIns=&*LockPair.first;
         llvm::Instruction * UnlockIns=&*LockPair.second;
         llvm::BasicBlock * LockBB=LockIns->getParent();
         llvm::BasicBlock * UnlockBB=UnlockIns->getParent();
         std::set<llvm::Instruction*> LockProtectIns;
-        for(llvm::BasicBlock::iterator lockbegin=LockPair.first;lockbegin!=LockBB->end();lockbegin++){//这个for用于处理第一个BB中从lock出发的情况
-            if(lockbegin==LockPair.first){//LockPiar.first为lock语句，所以我们跳过。
+        for(llvm::BasicBlock::iterator lockbegin=LockPair.first;lockbegin!=LockBB->end();lockbegin++){//This for is used to handle the situation starting from lock in the first BB.
+            if(lockbegin==LockPair.first){//LockPiar.first is a lock statement, so we skip it.
                 continue;
             }
-            if(lockbegin==LockPair.second){//如果在第一个BB里面找到了unlock语句，我们就break结束循环。
+            if(lockbegin==LockPair.second){//If the unlock statement is found in the first BB, we break to end the loop.
                 break;
             }
             llvm::Instruction *lockInst = &* lockbegin;
             //FindStoreAndCall(lockInst,funcName,Resource);  
-            LockProtectIns.insert(lockInst); //这里相当于是用LockPritectIns把锁/解锁保护的语句都收集起来了．              
+            LockProtectIns.insert(lockInst); //This is equivalent to using LockPritectIns to collect all lock/unlock protection statements.        
         }
         if(BBroute.size() >2 ){
-            for(auto BBit=++BBroute.begin();BBit!=BBroute.end();BBit++){//用于处理Lock和unlock之间的普通BB。
+            for(auto BBit=++BBroute.begin();BBit!=BBroute.end();BBit++){//Used to handle ordinary BB between Lock and unlock.
                 llvm::BasicBlock * BB=* BBit;
                 auto endBBit = BBit;
                 if(++endBBit==BBroute.end()){
@@ -610,7 +617,7 @@ void LockPair::printLockPairSet(std::vector<std::pair<std::pair<llvm::BasicBlock
             }
         }
                 
-        if(BBroute.size() > 1){  //这里加一个判断，加锁和解锁在同一个BB的情况，第一个循环已经遍历完了，这里不需要再遍历了。
+        if(BBroute.size() > 1){  //Add a judgment here. When locking and unlocking are on the same BB, the first loop has been traversed and there is no need to traverse it again.
             for(llvm::BasicBlock::iterator unlockbegin=UnlockBB->begin();unlockbegin!=LockPair.second;unlockbegin++){
                 llvm::Instruction *lockInst = &* unlockbegin;
                 //FindStoreAndCall(lockInst,funcName,Resource);
@@ -631,12 +638,12 @@ bool LockPair::findway(std::vector<std::pair<llvm::BasicBlock::iterator,llvm::Ba
     std::vector<std::pair<llvm::BasicBlock::iterator,llvm::BasicBlock::iterator>> pairVector=testPairVector;
     for(std::vector<std::pair<llvm::BasicBlock::iterator,llvm::BasicBlock::iterator>>::iterator pairstart=testPairVector.begin();pairstart!=testPairVector.end();pairstart++){
         std::pair<llvm::BasicBlock::iterator,llvm::BasicBlock::iterator> testpair=*pairstart;
-        llvm::Instruction * LockIns= &*testpair.first;//取一下上锁的instruction
-        llvm::Instruction * UnlockIns=&*testpair.second;//取一下解锁的instruction
-        llvm::BasicBlock * LockBB=LockIns->getParent();//取一下上锁的BB
-        llvm::BasicBlock * UnlockBB=UnlockIns->getParent();//取一下解锁的BB
-        std::vector<llvm::BasicBlock*> registerBB;  //纪录加锁到解锁所经过的BB的vector
-        std::pair<llvm::BasicBlock::iterator,llvm::BasicBlock::iterator> LockPair; //加锁和解锁对应的iterator组成的pair
+        llvm::Instruction * LockIns= &*testpair.first;//Take the locked instruction
+        llvm::Instruction * UnlockIns=&*testpair.second;//Get the unlocking instructions
+        llvm::BasicBlock * LockBB=LockIns->getParent();//Take out the locked BB
+        llvm::BasicBlock * UnlockBB=UnlockIns->getParent();//Take the unlocked BB
+        std::vector<llvm::BasicBlock*> registerBB;  //Record the vector of BB passed from lock to unlock.
+        std::pair<llvm::BasicBlock::iterator,llvm::BasicBlock::iterator> LockPair; //A pair consisting of the corresponding iterators for locking and unlocking.
         std::pair<std::pair<llvm::BasicBlock::iterator,llvm::BasicBlock::iterator>,std::vector<llvm::BasicBlock*>> LockPairWithBB;
         llvm::Function::iterator LockIt;
         llvm::Function::iterator UnlockIt;
@@ -659,7 +666,7 @@ bool LockPair::findway(std::vector<std::pair<llvm::BasicBlock::iterator,llvm::Ba
         }
         auto LockItTemp = LockIt;
         auto UnlockItTemp = UnlockIt;
-        for(llvm::Function::iterator It = findwayf->begin();It!=findwayf->end();It++){ //在函数的所有部分找加锁语句dominator的BB,并插入到LockDom集合中
+        for(llvm::Function::iterator It = findwayf->begin();It!=findwayf->end();It++){ //Find the BB of the lock statement dominator in all parts of the function and insert it into the LockDom collection.
             if((&*It==LockBB)||(&*It==UnlockBB)){
                 continue;
             }
@@ -683,35 +690,38 @@ bool LockPair::findway(std::vector<std::pair<llvm::BasicBlock::iterator,llvm::Ba
 }
 
 void LockPair::TravseBB(llvm::BasicBlock* originbb,std::vector<llvm::BasicBlock::iterator> Stack,std::vector<llvm::BasicBlock*> registerBB,std::vector<std::pair<llvm::BasicBlock::iterator,llvm::BasicBlock::iterator>>  *LockPairVector,llvm::Function *findwayf){//
-        //这里存进来的有要递归的BB,记录家解锁对的stack,以及记录BBvector的registerBB,还有最大的记录集合的指针。
+        //What is stored here are the BB to be recursed, the stack of the recorder unlocking pair, registerBB of the record BBvector, and the pointer to the largest record set.
     int originBBID = getBBID(originbb);
-    if(pred_empty(originbb)){//BB要有前驱
+    if(pred_empty(originbb)){//BB needs a precursor
         return;
     }
-    llvm::pred_iterator SI(pred_begin(originbb)), SE(pred_end(originbb));//这个循环的作用现在不是遍历一个BB所有的前驱，是找到一对成对的解锁/锁，我在这里只取其中的一个路径就好了
+    llvm::pred_iterator SI(pred_begin(originbb)), SE(pred_end(originbb));//The function of this loop is not to traverse all the predecessors of a BB, but to find a pair of unlocks/locks. I can just take one of the paths here.
     for(;SE!=SI;SI++){
         llvm::BasicBlock *SB = llvm::dyn_cast<llvm::BasicBlock>(*SI);
         int SBID = getBBID(SB);
-        if(SBID >= originBBID){//因为CFG是一个有向有环图，所以用当前BB和后继BB的ID做判断，如果后继BB的ID小于等于当前BB的ID，相当于循环的起始点，我们就continue.不管这个BB了。
+        if(SBID >= originBBID){
+	//Because CFG is a directed cyclic graph, the ID of the current BB and the successor BB is used to make the judgment. 
+	//If the ID of the successor BB is less than or equal to the ID of the current BB, which is equivalent to the starting point of the cycle, we will continue. Ignore this BB.
             continue;
         }
         std::vector<llvm::BasicBlock::iterator> StackTmp=Stack;
-        for(llvm::BasicBlock::iterator bbInstIt = --SB->end(); bbInstIt != --SB->begin();bbInstIt--){//遍历前驱BB的instruction，同样是倒着遍历。
+        for(llvm::BasicBlock::iterator bbInstIt = --SB->end(); bbInstIt != --SB->begin();bbInstIt--){//The instructions for traversing the precursor BB are also traversed backwards.
             llvm::Instruction *bbInst = &*bbInstIt;
             if(llvm::CallInst *callInst = llvm::dyn_cast<llvm::CallInst>(bbInst)){
                 if(llvm::Function *called = callInst->getCalledFunction()){
                     std::string LockFuncName = called->getName().str();
-                    if(spin_unlock.find(LockFuncName) != spin_unlock.end()){//如果在前驱BB中找到了解锁语句，入栈
+                    if(spin_unlock.find(LockFuncName) != spin_unlock.end()){//If the unlock statement is found in the precursor BB, push it onto the stack.
                         std::vector<llvm::BasicBlock::iterator> StackTmpush = StackTmp;
                         StackTmpush.push_back(bbInstIt);
                         StackTmp=StackTmpush;
                     }
-                    if(spin_lock.find(LockFuncName) != spin_lock.end()){//如果找到了上锁语句，出栈
+                    if(spin_lock.find(LockFuncName) != spin_lock.end()){//If a locking statement is found, pop it off the stack.
                         std::vector<llvm::BasicBlock::iterator> StackTmpop = StackTmp;
                         auto UnLockInstIt = StackTmpop.back();
                         StackTmpop.pop_back();
                         StackTmp=StackTmpop;
-                        if(StackTmpop.empty()){//因为我们的栈是继承递归前栈状态的，所以这里栈空，就能够说明找到了总解锁/加锁对的一个分支，这里必须要考虑不同分支存在不同的总解锁语句。
+                        if(StackTmpop.empty()){
+			//Because our stack inherits the state of the recursive front stack, the empty stack here means that a branch of the total unlock/lock pair has been found. It must be considered that different total unlock statements exist in different branches.
                             std::pair<llvm::BasicBlock::iterator,llvm::BasicBlock::iterator> AllLockPair;
                             AllLockPair.first=bbInstIt;
                             AllLockPair.second=UnLockInstIt;
@@ -723,7 +733,7 @@ void LockPair::TravseBB(llvm::BasicBlock* originbb,std::vector<llvm::BasicBlock:
             }
         }
 
-        if(!pred_empty(SB)&&!StackTmp.empty()){//走到这里说明当前ＢＢ遍历完成且栈不空
+        if(!pred_empty(SB)&&!StackTmp.empty()){//Going here means that the current BB traversal is completed and the stack is not empty.
             TravseBB(SB,StackTmp,registerBB,LockPairVector,findwayf);
         }
         return;
@@ -738,52 +748,52 @@ void LockPair::TravseBB(llvm::BasicBlock* originbb,std::vector<llvm::BasicBlock:
 bool LockPair::LockPairMain(llvm::Function* F){
     std::string FuncName = F->getName().str();
     std::vector<std::string> Resource;
-    std::vector<std::pair<std::pair<llvm::BasicBlock::iterator,llvm::BasicBlock::iterator>,std::vector<llvm::BasicBlock*>>>  LockPairSet; //保存当前函数中所有加锁/解锁对以及经过的BB,
-    std::vector<std::pair<llvm::BasicBlock::iterator,llvm::BasicBlock::iterator>> LockPairVector;//保存所有加解锁对
+    std::vector<std::pair<std::pair<llvm::BasicBlock::iterator,llvm::BasicBlock::iterator>,std::vector<llvm::BasicBlock*>>>  LockPairSet; //Save all lock/unlock pairs and passed BBs in the current function.
+    std::vector<std::pair<llvm::BasicBlock::iterator,llvm::BasicBlock::iterator>> LockPairVector;//Save all add-unlock pairs.
 	if((spin_lock.find(FuncName) != spin_lock.end())||(spin_unlock.find(FuncName)!=spin_unlock.end())||(atomic_function.find(FuncName)!=atomic_function.end())||(percpu_function.find(FuncName)!=percpu_function.end())||(AllocFunctionNames.find(FuncName)!=AllocFunctionNames.end())){
 		return false;
 	}
 	if((spin_lock.find(F->getName().str()) == spin_lock.end())&&(spin_unlock.find(F->getName().str()) == spin_unlock.end())&&(atomic_function.find(FuncName)==atomic_function.end())&&(percpu_function.find(FuncName)==percpu_function.end())&&(AllocFunctionNames.find(FuncName)==AllocFunctionNames.end())){
-        for(llvm::Function::iterator BBIt = --F->end(); BBIt != --F->begin(); BBIt--){ //倒着遍历每个BB找解锁语句
-            std::vector<llvm::BasicBlock*> registerBB;  //纪录加锁到解锁所经过的BB的vector
-            std::pair<llvm::BasicBlock::iterator,llvm::BasicBlock::iterator> LockPair; //加锁和解锁对应的iterator组成的pair
-            std::pair<std::pair<llvm::BasicBlock::iterator,llvm::BasicBlock::iterator>,std::vector<llvm::BasicBlock*>> LockPairWithBB; //由上述pair和vector组成的pair
+        for(llvm::Function::iterator BBIt = --F->end(); BBIt != --F->begin(); BBIt--){ //Traverse each BB backwards to find the unlocking statement
+            std::vector<llvm::BasicBlock*> registerBB;  //Record the vector of BB passed from lock to unlock
+            std::pair<llvm::BasicBlock::iterator,llvm::BasicBlock::iterator> LockPair; //A pair consisting of the corresponding iterators for locking and unlocking
+            std::pair<std::pair<llvm::BasicBlock::iterator,llvm::BasicBlock::iterator>,std::vector<llvm::BasicBlock*>> LockPairWithBB; //A pair consisting of the above pair and vector
             llvm::BasicBlock *BB = &*BBIt;
-            for(llvm::BasicBlock::iterator BInstIt = --BB->end(); BInstIt != --BB->begin();BInstIt--){ //倒着在每个BB中逐句寻找解锁语句。
+            for(llvm::BasicBlock::iterator BInstIt = --BB->end(); BInstIt != --BB->begin();BInstIt--){ //Go backwards and look for the unlocking statement in each BB sentence by sentence.
                 llvm::Instruction *BInst = &*BInstIt;
                 if(llvm::CallInst *callInst = llvm::dyn_cast<llvm::CallInst>(BInst)){
                     if(llvm::Function *called = callInst->getCalledFunction()){
                         std::string LockFuncName = called->getName().str();
-                        if(spin_unlock.find(LockFuncName) != spin_unlock.end()){  //找到一个解锁语句，开始找这个解锁语句的真实加锁语句。中间经过的加锁/解锁我不关心
-                            std::vector<llvm::BasicBlock::iterator> Stack;    //对应一次找锁行为需要一个栈，所以在此定义一个局部栈，生命周期为找到当前加锁语句的真实解锁语句为止。这里存的是找到锁语句之后，遍历过程中遇到的加解锁语句。  
-                            Stack.push_back(BInstIt);//遇到了解锁语句，入栈，这里相当于是我们找到的总加解锁对中的总解锁。
+                        if(spin_unlock.find(LockFuncName) != spin_unlock.end()){  //Find an unlocking statement and start looking for the real locking statement of this unlocking statement. I don’t care about the locking/unlocking in between.
+                            std::vector<llvm::BasicBlock::iterator> Stack;    //Corresponding to a lock-finding behavior, a stack is required, so a local stack is defined here. The life cycle is until the real unlocking statement of the current locking statement is found. What is stored here is the adding and unlocking statements encountered during the traversal process after the lock statement is found.  
+                            Stack.push_back(BInstIt);//When an unlock statement is encountered, it is pushed onto the stack. This is equivalent to the total unlock in the total plus unlock pair we found.
                             auto NextIt=BInstIt;
-                            for(llvm::BasicBlock::iterator NextUnLockInIt = --NextIt; NextUnLockInIt != --BB->begin(); NextUnLockInIt--){//这个循环是本BB中的所有语句遍历。
+                            for(llvm::BasicBlock::iterator NextUnLockInIt = --NextIt; NextUnLockInIt != --BB->begin(); NextUnLockInIt--){//This loop traverses all statements in this BB.
                                 llvm::Instruction *BInstUnLock = &*NextUnLockInIt;
                                 if(llvm::CallInst *CallInNextUnLock = llvm::dyn_cast<llvm::CallInst>(BInstUnLock)){
                                     if(llvm::Function *calledNextUnLock = CallInNextUnLock->getCalledFunction()){
                                         std::string NextUnLockFuncName = calledNextUnLock->getName().str();
-                                        if(spin_unlock.find(NextUnLockFuncName) != spin_unlock.end()){//如果在扫的时候发现总解锁之后还有解锁，就把它入栈
+                                        if(spin_unlock.find(NextUnLockFuncName) != spin_unlock.end()){//If you find that there is another unlock after the total unlock when scanning, just push it into the stack.
                                             Stack.push_back(NextUnLockInIt);
                                         }
-                                        if(spin_lock.find(NextUnLockFuncName) != spin_lock.end()){//如果在本BB中找到了lock,
-                                            auto UnLockInstIt = Stack.back();//取的是栈中的栈顶，就是vector中的最后一个元素
-                                            Stack.pop_back();//再把它pop出来。这一对解锁和锁就弹出了，但是不一定是我们关心的总解锁语句。                
-                                            if(Stack.empty()){//如果栈空，说明找到了总加锁锁语句。
-                                                registerBB.push_back(BB);//这里把总解锁所在的ＢＢ记录到之前的BasicBlock vector中
-                                                LockPair.first = NextUnLockInIt;//获取的是总加锁,就是我们判断栈空时候的上锁语句
-                                                LockPair.second = UnLockInstIt;//获取总解锁。
+                                        if(spin_lock.find(NextUnLockFuncName) != spin_lock.end()){//If the lock is found in this BB,
+                                            auto UnLockInstIt = Stack.back();//What is taken is the top of the stack, which is the last element in the vector.
+                                            Stack.pop_back();//Pop it out again. This pair of unlock and lock pops up, but it is not necessarily the total unlock statement we care about.               
+                                            if(Stack.empty()){//If the stack is empty, it means that the total lock statement has been found.
+                                                registerBB.push_back(BB);//Here, the BB where the total unlock is located is recorded in the previous BasicBlock vector.
+                                                LockPair.first = NextUnLockInIt;//What is obtained is the total lock, which is the lock statement when we judge that the stack is empty.
+                                                LockPair.second = UnLockInstIt;//Get total unlocks.
                                                 LockPairWithBB.first = LockPair;
-                                                LockPairWithBB.second = registerBB;//这是之前遍历pair过程中记录的经过的BB
-                                                LockPairSet.push_back(LockPairWithBB);//这是最外层的大vector.
-                                                break;//跳出当前的总加锁/解锁对，遍历BB中的下一个总解锁语句。
+                                                LockPairWithBB.second = registerBB;//This is the BB recorded during the previous traversal of the pair.
+                                                LockPairSet.push_back(LockPairWithBB);//This is the outermost large vector.
+                                                break;//Jump out of the current total lock/unlock pair and traverse the next total unlock statement in BB.
                                             }   
                                         }
                                     }
                                 }
                             }
-                            if(!Stack.empty()){ //当前BB遍历完了，但是栈非空，说明还没有找到真实的加锁函数，递归BB去寻找。
-                                TravseBB(BB,Stack,registerBB,&LockPairVector,F);//这里递归遍历BB的前驱.
+                            if(!Stack.empty()){ //The current BB traversal is complete, but the stack is not empty, which means that the real locking function has not been found yet, so recurse BB to find it.
+                                TravseBB(BB,Stack,registerBB,&LockPairVector,F);//Here the predecessor of BB is traversed recursively.
                                 continue;
                             }
                         }
@@ -795,15 +805,15 @@ bool LockPair::LockPairMain(llvm::Function* F){
 		if(!LockPairVector.empty()){
             for(std::vector<std::pair<llvm::BasicBlock::iterator,llvm::BasicBlock::iterator>>::iterator pairstarttest=LockPairVector.begin();pairstarttest!=LockPairVector.end();pairstarttest++){
                 std::pair<llvm::BasicBlock::iterator,llvm::BasicBlock::iterator> testpairtest=*pairstarttest;
-                llvm::Instruction * LockInstest= &*testpairtest.first;//取一下上锁的instruction
-                llvm::Instruction * UnlockInstest=&*testpairtest.second;//取一下解锁的instruction
-                llvm::BasicBlock * LockBBtest=LockInstest->getParent();//取一下上锁的BB
-                llvm::BasicBlock * UnlockBBtest=UnlockInstest->getParent();//取一下解锁的BB  
+                llvm::Instruction * LockInstest= &*testpairtest.first;//Take the locked instruction
+                llvm::Instruction * UnlockInstest=&*testpairtest.second;//Get the unlocking instructions
+                llvm::BasicBlock * LockBBtest=LockInstest->getParent();//Take out the locked BB
+                llvm::BasicBlock * UnlockBBtest=UnlockInstest->getParent();//Take the unlocked BB
             }
             int t=findway(LockPairVector,&LockPairSet,F);
         }
         if(!LockPairSet.empty()){
-            std::cout<<"递归查找完成，开始打印，Function name: "<<F->getName().str()<<std::endl;
+            std::cout<<"The recursive search is completed and printing begins， Function name: "<<F->getName().str()<<std::endl;
             printLockPairSet(LockPairSet,F,&Resource);
             if(!Resource.empty()){
                 FuncResource[F] = Resource;
@@ -831,7 +841,7 @@ bool LockPair::LockAtomicResource(llvm::Function* F){
 			if(llvm::Function * called = callInst->getCalledFunction()){
 				llvm::StringRef FNameValue=called->getName();
 				std::string mystr = FNameValue.str();
-				if((spin_lock.find(mystr) != spin_lock.end())||(spin_unlock.find(mystr)!=spin_unlock.end())||(atomic_function.find(mystr)!=atomic_function.end())||(percpu_function.find(mystr)!=percpu_function.end())){//此处已修改完成，针对atomic.xxxx的情况，使用了四个判断1.名字2.参数
+				if((spin_lock.find(mystr) != spin_lock.end())||(spin_unlock.find(mystr)!=spin_unlock.end())||(atomic_function.find(mystr)!=atomic_function.end())||(percpu_function.find(mystr)!=percpu_function.end())){//The modification has been completed here. For the case of atomic.xxxx, four judgments are used: 1. Name 2. Parameters
 					for(auto arggb=callInst->arg_begin(),argge=callInst->arg_end();arggb!=argge;arggb++){
 						if (llvm::GlobalValue* G = llvm::dyn_cast<llvm::GlobalValue>(arggb)){
                             std::string GB = "Global Variable:" + G->getName().str();
@@ -839,7 +849,7 @@ bool LockPair::LockAtomicResource(llvm::Function* F){
                                 if(!CheckGlobalVariable(G)) {
                                     NewResource.push_back(GB);
                                 }
-                            }//这里加了一个if判断,如果是atomic/per_cpu的内容,我们才把他插入到相关的Global Variable里面,对于lock类的内容都不插入.
+                            }//An if judgment is added here. If it is the content of atomic/per_cpu, we will insert it into the relevant Global Variable, and we will not insert the content of the lock class.
 						}
 					}
 
@@ -870,8 +880,9 @@ bool LockPair::LockAtomicResource(llvm::Function* F){
 
 }
 
-void LockPair::MarkRlimitControlFunc(llvm::Function *F){//这个函数的作用是标记受到rlimit影响的函数，一个函数中如果使用rlimit参与了比较，我们就把这个函数标记为受到rlimit控制的函数，所有
-//经过这个函数的路径我们就不考虑了。
+void LockPair::MarkRlimitControlFunc(llvm::Function *F){
+//The function of this function is to mark functions affected by rlimit. If rlimit is used to participate in comparison in a function, 
+//we will mark the function as a function controlled by rlimit, and we will not consider all paths passing through this function.
     for(llvm::inst_iterator inst_it = inst_begin(F);inst_it != inst_end(F);inst_it++){
         llvm::Instruction *instem = &*inst_it;
         if(llvm::CallInst *callInst = llvm::dyn_cast<llvm::CallInst>(instem)){
@@ -911,7 +922,7 @@ void LockPair::TravseIcmpUser(llvm::Instruction *icmpinst,llvm::Function *F,int 
     if(*stopsignal == 1){
         return;
     }
-    if(icmpinst->getOpcode() == llvm::Instruction::GetElementPtr){      //第一种情况，对应的是GEP指令，说明我们可以从这获取结构体了。
+    if(icmpinst->getOpcode() == llvm::Instruction::GetElementPtr){      //The first case corresponds to the GEP instruction, which means we can get the structure from here.
 		llvm::GetElementPtrInst *gepinst = llvm::dyn_cast<llvm::GetElementPtrInst>(icmpinst);
         llvm::Value *GepOperand = gepinst->getOperand(0);
         std::string GepType = ReturnTypeRefine(*GepOperand->getType());
@@ -922,7 +933,7 @@ void LockPair::TravseIcmpUser(llvm::Instruction *icmpinst,llvm::Function *F,int 
         }
     }
 
-    for (auto operand = icmpinst->operands().begin();operand != icmpinst->operands().end();++operand){  //如果对应的是普通语句，则正常遍历他的operands来递归。
+    for (auto operand = icmpinst->operands().begin();operand != icmpinst->operands().end();++operand){  //If the corresponding statement is an ordinary statement, its operands are traversed normally to recurse.
 		llvm::Value *opValue = llvm::dyn_cast<llvm::Value>(operand);
 		if(llvm::Instruction *opInst = llvm::dyn_cast<llvm::Instruction>(opValue)){
             if(llvm::dyn_cast<llvm::PHINode>(opInst)){
@@ -939,8 +950,8 @@ void LockPair::TravseIcmpUser(llvm::Instruction *icmpinst,llvm::Function *F,int 
 }
 
 
-bool LockPair::StructHasNamespace(llvm::Type *Ty, std::string FuncName){//递归展开一个sturct底下的所有域
-    std::set<std::string> TravsedStruct;//这里是把结构体里面的嵌套关系记录一下，只要我便利过这个结构体，我就不再展开了
+bool LockPair::StructHasNamespace(llvm::Type *Ty, std::string FuncName){//Recursively expand all fields under a sturct
+    std::set<std::string> TravsedStruct;//Here is a record of the nested relationships in the structure. As long as I am convenient for this structure, I will not expand it.
     std::string StructName = ReturnTypeRefine(*Ty);
     int hasNamespace = 0;
     std::vector<llvm::Type*> TravseStack;
