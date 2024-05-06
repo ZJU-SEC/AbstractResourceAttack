@@ -13,7 +13,7 @@ class LockPair {
       void CollectLockAndAtomic();
       bool IsInitFunction(llvm::Function* F);
       bool LockPairMain(llvm::Function* );
-      bool FindChangArg(llvm::Function * funcname, int offset);//这个用来便利funcA->callfuncB中的funcB函数
+      bool FindChangArg(llvm::Function * funcname, int offset);//This is used to traverse the funcB function in funcA->callfuncB
       bool LockAtomicResource(llvm::Function* );
       void MarkRlimitControlFunc(llvm::Function*);
       void MarkNameSpaceControlFunc(llvm::Function*);
@@ -21,7 +21,7 @@ class LockPair {
       void Test();
       bool isTypeMatch(const llvm::Instruction *Inst, const llvm::Value *source);
       void TravseUserStruct(llvm::Value *,llvm::Value * ,llvm::Function* funcName,std::vector<llvm::Instruction*> &);
-      std::map<llvm::Function*,std::vector<std::string> > FuncResource; //这里存放的就是我们之前使用LockPair/LockAtomicStructure找出的结果，key是function,value是敏感函数对应的多个资源
+      std::map<llvm::Function*,std::vector<std::string> > FuncResource; //Stored here are the results we found using LockPair/LockAtomicStructure before. The key is function and the value is multiple resources corresponding to the sensitive function.
       std::set<llvm::Function*> RlimitControlFunc;
       std::set<llvm::Function*> NameSpaceControlFunc;
     
