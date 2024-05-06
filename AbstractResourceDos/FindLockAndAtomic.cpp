@@ -1,7 +1,7 @@
 #include "FindLockAndAtomic.h"
 #include "llvm/IR/InstIterator.h"
 
-FindLockAndAtomic::FindLockAndAtomic(llvm::Module &module){ //因为我们的集合是便利module中的所有function得到的，所以我们在这里把module传进去
+FindLockAndAtomic::FindLockAndAtomic(llvm::Module &module){ //Because our collection is obtained by all functions in the module, we pass the module in here.
     _module_ = &module;
 }
 
@@ -16,7 +16,7 @@ void FindLockAndAtomic::Test(){
     }
 }
 
-void FindLockAndAtomic::FindLock(){ //这里用来设置总的spin/mutex/rw/percpu/atomic/alloc func的集合
+void FindLockAndAtomic::FindLock(){ //This is used to set the total spin/mutex/rw/percpu/atomic/alloc func collection.
     AllSpin();
     AllMutex();
     AllWrite();
@@ -27,10 +27,12 @@ void FindLockAndAtomic::FindLock(){ //这里用来设置总的spin/mutex/rw/perc
 }
 
 void FindLockAndAtomic::AllSpin(){
+//The structure here is the same. GenerateRawSpinLock is used to find the basic lock, the function starting with Set is used to add locks and unlock.
+//The BasicAndUpper function is used to find the wrapper and merge the basic lock functions to get the set we want.
     std::set<std::string> SpinLockSet;
     std::set<std::string> SpinUnlockSet;
     std::set<std::string> SpinBasicLockSet;
-    GenerateRawSpinLock();      //这里的结构一样，GenerateRawSpinLock用来找基本锁，Set开头的函数用来分加锁解锁，BasicAndUpper函数用来找wrapper，并且合并基本锁函数，得到我们要的集合
+    GenerateRawSpinLock();      
     GenerateBasicSpinLock();
     SetRawSpin(&SpinLockSet,&SpinUnlockSet);
     SetSpin(&SpinLockSet,&SpinUnlockSet);
@@ -117,7 +119,7 @@ void FindLockAndAtomic::AllAtomic(){
 								continue;
 							}
 							else {
-                                ArgIsInteger=false;//这里的逻辑是，对于Atomic,一方面参数中包含struct.atomic_t,另外参数个数不超过三个，除了atomi_t之外，其他参数类型都是整数
+                                ArgIsInteger=false;//for Atomic, the parameters include struct.atomic_t, and the number of parameters does not exceed three. Except for atomi_t, the other parameter types are all integers.
 								break;
 							}
 						}
@@ -139,7 +141,7 @@ void FindLockAndAtomic::AllAllocFunction(){
     auto &functionlist = _module_->getFunctionList();
     for(auto &F : functionlist){
         for(llvm::Function::arg_iterator argb=F.arg_begin(), arge=F.arg_end();argb!=arge;++argb){
-//			bool HasBitCast = false;//如果存在bitcast语句，因为发现了例子acpi_os_delete_raw_lock，这个会把传进去的struct.raw_spin_lock转成i8*,我们这里去除这种情况
+//	bool HasBitCast = false;//If there is a bitcast statement, because the example acpi_os_delete_raw_lock is found, this will convert the passed struct.raw_spin_lock into i8*. We will remove this situation here.
             std::string type_str;
             llvm::Type* tp = argb->getType();
             llvm::raw_string_ostream rso(type_str);
@@ -159,7 +161,8 @@ void FindLockAndAtomic::GenerateRawSpinLock(){
     auto &functionlist = _module_->getFunctionList();
     for(auto &F : functionlist){
         for(llvm::Function::arg_iterator argb=F.arg_begin(), arge=F.arg_end();argb!=arge;++argb){
-				bool HasBitCast = false;//如果存在bitcast语句，因为发现了例子acpi_os_delete_raw_lock，这个会把传进去的struct.raw_spin_lock转成i8*,我们这里去除这种情况
+		//If there is a bitcast statement, because the example acpi_os_delete_raw_lock is found, this will convert the passed struct.raw_spin_lock into i8*. We will remove this situation here.
+		bool HasBitCast = false;
                 std::string type_str;
                 llvm::Type* tp = argb->getType();
                 llvm::raw_string_ostream rso(type_str);
@@ -174,13 +177,13 @@ void FindLockAndAtomic::GenerateRawSpinLock(){
 						if(!ArgV->user_empty()){
 							for(auto ArgUser=ArgV->user_begin();ArgUser!=ArgV->user_end();ArgUser++){
 								if(llvm::BitCastInst *bitcastinst = llvm::dyn_cast<llvm::BitCastInst>(*ArgUser)){
-									HasBitCast = true;//这里针对的就是那一个noise。
+									HasBitCast = true;//This is the noise that is targeted here.
 								}
 							}
 						}
 					}
 
-					if(argcount<=2 && HasBitCast == false){//基本函数的参数个数都小于两个。
+					if(argcount<=2 && HasBitCast == false){//The number of parameters of basic functions is less than two.
                     	basic_raw_spin_lock.insert(F.getName().str());
 					}else{
 						//std::cout<<"Arg > 2: "<<F.getName().str()<<std::endl;
@@ -191,7 +194,7 @@ void FindLockAndAtomic::GenerateRawSpinLock(){
 }
 
 /*
-    GenerateBasicSpinLock()要在GenerateRawSpinlock后面调用
+    GenerateBasicSpinLock() should be called after GenerateRawSpinlock
 */
 void FindLockAndAtomic::GenerateBasicSpinLock(){
     std::set<std::string> raw_spin;
@@ -201,14 +204,15 @@ void FindLockAndAtomic::GenerateBasicSpinLock(){
     auto &functionlist = _module_->getFunctionList();
     for(auto &F : functionlist){
         for(llvm::Function::arg_iterator argb=F.arg_begin(), arge=F.arg_end();argb!=arge;++argb){
-			bool callRaw = false;//spin_lock都是对raw_spin_lock的封装，所以这里设置了这个，且spin_lock一定会取spin_lock结构体中的rlock.
+			bool callRaw = false;//spin_lock is an encapsulation of raw_spin_lock, so this is set here, and spin_lock will definitely take the rlock in the spin_lock structure.
 			bool IsGep = false;
             std::string type_str;
             llvm::Type* tp = argb->getType();
             llvm::raw_string_ostream rso(type_str);
             tp->print(rso);
             if(rso.str() == "%struct.spinlock*"){
-        		if(llvm::Value *ArgV = llvm::dyn_cast<llvm::Value>(argb)){//这里我们对spin_lock的定义为:参数含有struct.spin_lock_t，且函数中会取spin_lock_t下的rlock作为参数，传给我们之前找到的raw_spin_lock函数集合。
+        		if(llvm::Value *ArgV = llvm::dyn_cast<llvm::Value>(argb)){
+		//Here we define spin_lock as: the parameter contains struct.spin_lock_t, and the function will take rlock under spin_lock_t as a parameter and pass it to the raw_spin_lock function set we found before.
 					if(!ArgV->user_empty()){
 						for(auto ArgUser=ArgV->user_begin();ArgUser!=ArgV->user_end();ArgUser++){
 							if(llvm::GetElementPtrInst *gepinst = llvm::dyn_cast<llvm::GetElementPtrInst>(*ArgUser)){
@@ -245,7 +249,7 @@ void FindLockAndAtomic::GenerateBasicMutexLock(){
     auto &functionlist = _module_->getFunctionList();
     for(auto &F : functionlist){
        for(llvm::Function::arg_iterator argb=F.arg_begin(), arge=F.arg_end();argb!=arge;++argb){
-			bool HasBitCast = false;//如果存在bitcast语句，因为发现了例子acpi_os_delete_raw_lock，这个会把传进去的struct.raw_spin_lock转成i8*,我们这里去除这种情况
+	    bool HasBitCast = false;//If there is a bitcast statement, because the example acpi_os_delete_raw_lock is found, this will convert the passed struct.raw_spin_lock into i8*. We will remove this situation here.
             std::string type_str;
             llvm::Type* tp = argb->getType();
             llvm::raw_string_ostream rso(type_str);
@@ -260,13 +264,13 @@ void FindLockAndAtomic::GenerateBasicMutexLock(){
 					if(!ArgV->user_empty()){
 						for(auto ArgUser=ArgV->user_begin();ArgUser!=ArgV->user_end();ArgUser++){
 							if(llvm::BitCastInst *bitcastinst = llvm::dyn_cast<llvm::BitCastInst>(*ArgUser)){
-								HasBitCast = true;//这里针对的就是那一个noise。
+								HasBitCast = true;//This is the noise that is targeted here.
 							}
 						}
 					}
 				}
 
-				if(argcount==1 && HasBitCast == false){//基本函数的参数个数都小于两个。
+				if(argcount==1 && HasBitCast == false){//The number of parameters of basic functions is less than two.
                     basic_mutex_lock.insert(F.getName().str());
 				}else{
 					//std::cout<<"Arg > 1: "<<F.getName().str()<<std::endl;
@@ -282,7 +286,7 @@ void FindLockAndAtomic::GenerateBasicRWLock(){
     auto &functionlist = _module_->getFunctionList();
     for(auto &F : functionlist){
        for(llvm::Function::arg_iterator argb=F.arg_begin(), arge=F.arg_end();argb!=arge;++argb){
-			bool HasBitCast = false;//如果存在bitcast语句，因为发现了例子acpi_os_delete_raw_lock，这个会把传进去的struct.raw_spin_lock转成i8*,我们这里去除这种情况
+	    bool HasBitCast = false;//If there is a bitcast statement, because the example acpi_os_delete_raw_lock is found, this will convert the passed struct.raw_spin_lock into i8*. We will remove this situation here.
             std::string type_str;
             llvm::Type* tp = argb->getType();
             llvm::raw_string_ostream rso(type_str);
@@ -292,7 +296,7 @@ void FindLockAndAtomic::GenerateBasicRWLock(){
 				for(llvm::Function::arg_iterator argcountb=F.arg_begin(),argcounte=F.arg_end();argcountb!=argcounte;++argcountb){
 						argcount++;
 				}
-				if(argcount<=2 && HasBitCast == false){//基本函数的参数个数都小于两个。
+				if(argcount<=2 && HasBitCast == false){//The number of parameters of basic functions is less than two.
 					std::string fname=F.getName().str();
 					const char *p = strstr(fname.c_str(),str1);
 					const char *p1 = strstr(fname.c_str(),str2);
@@ -456,25 +460,25 @@ void FindLockAndAtomic::BasicAndUpperLockSet(std::set<std::string> LockSet,std::
     for(auto &F : functionlist){
         std::string FuncName = F.getName().str();
         bool isupper = false;
-        for(llvm::inst_iterator insb = inst_begin(F);insb != inst_end(F);++insb){  //遍历Instruction
+        for(llvm::inst_iterator insb = inst_begin(F);insb != inst_end(F);++insb){  //Traverse Instruction
             llvm::Instruction *instem = &*insb;
             if(llvm::CallInst *callInst = llvm::dyn_cast<llvm::CallInst>(instem)){
                 if(llvm::Function *called = callInst->getCalledFunction()){
                     std::string CalledFunc = called->getName().str();
-                    if(LockSet.find(CalledFunc) != LockSet.end()){ //一开始遇到的是spin_lock（加锁）
+                    if(LockSet.find(CalledFunc) != LockSet.end()){ //What I encountered at the beginning was spin_lock (locking)
                         bool hasunlock = false;
-                        for(llvm::inst_iterator inafterlock = insb;inafterlock != inst_end(F);++inafterlock){  //从该加锁语句往下遍历，如果遇到了解锁语句，hasunlock置为true
+                        for(llvm::inst_iterator inafterlock = insb;inafterlock != inst_end(F);++inafterlock){//Traverse downward from the locking statement. If an unlocking statement is encountered, hasunlock is set to true.
                             llvm::Instruction *afterlockInst = &*inafterlock;
                             if(llvm::CallInst *Acalled = llvm::dyn_cast<llvm::CallInst>(afterlockInst)){
                                 if(llvm::Function *unlockcalled = Acalled->getCalledFunction()){
                                     std::string aCalledFunc = unlockcalled->getName().str();
                                     if(UnlockSet.find(aCalledFunc) != UnlockSet.end()){
-                                        hasunlock = true;//那么它就不是我们要的upper封装
+                                        hasunlock = true;//Then it is not the upper package we want
                                     }
                                 }
                             }
                         }
-                        if(hasunlock == false){   //遍历完了也没有call unlock,那isupper置位true
+                        if(hasunlock == false){   //After traversing, there is no call to unlock, then isupper is set to true.
                             isupper = true;
                             if(isupper=true){
                                 if(BasicLock.find(FuncName) != BasicLock.end()){
@@ -484,10 +488,11 @@ void FindLockAndAtomic::BasicAndUpperLockSet(std::set<std::string> LockSet,std::
                                 }   
                             }
                         }
-                        break;   //结束该Function的分析。
-                    }//这里的作用是用第一个抓到的lock去匹配，如果第一个是lock，之后的也都是lock,那么我们认为这就是一个upper.
+                        break;   //End the analysis of this Function.
+                    }//The function here is to use the first captured lock to match. If the first one is a lock, and the following ones are all locks, then we think this is an upper.
 
-                    if(UnlockSet.find(CalledFunc) != UnlockSet.end()){   //一开始遇到的是unlock语句，从这句往下找如果没有有lock函数，就为upper(感觉是多余的，如果第一个是解锁的函数，说明就是upper了)
+                    if(UnlockSet.find(CalledFunc) != UnlockSet.end()){   
+		//The first thing I encounter is the unlock statement. If you look down from this sentence, if there is no lock function, it is upper (it feels redundant. If the first one is the unlock function, it means it is upper)
                         bool haslock = false;
                         for(llvm::inst_iterator inafterunlock = insb;inafterunlock != inst_end(F);++inafterunlock){
                             llvm::Instruction *afterUnlockInst = &*inafterunlock;
@@ -511,7 +516,7 @@ void FindLockAndAtomic::BasicAndUpperLockSet(std::set<std::string> LockSet,std::
                             }
                         }
                         break;   
-                    }//这里和上面类似，去找unlock的upper.
+                    }//This is similar to the above. Find the unlocked upper.
 		        }
             }
         }
