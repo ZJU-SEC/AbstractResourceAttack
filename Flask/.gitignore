@@ -1,0 +1,7 @@
+__pycache__
+.vscode
+tests
+build
+*.o
+host_lmbench
+host_unixbench

@@ -1,0 +1,66 @@
+cmake_minimum_required(VERSION 3.10)
+project(FlaskCPP)
+
+# Set the C standard and enable languages
+enable_language(C CXX)
+set(CMAKE_C_STANDARD 20)
+set(CMAKE_CXX_STANDARD 20)
+
+# source files
+set(SOURCES flask.cpp utils/extract_cgid.cpp utils/trace_ra.cpp utils/trace_proc.cpp)
+
+# eBPF source files
+set(EBPF_SOURCE_DIR ${CMAKE_SOURCE_DIR}/monitors)
+set(INCLUDE_DIR ${CMAKE_SOURCE_DIR}/includes)
+
+# Find clang
+find_program(CLANG clang)
+if(NOT CLANG)
+  message(FATAL_ERROR "clang not found!")
+endif()
+
+# Find bpftool
+find_program(BPFTOOL bpftool)
+if(NOT BPFTOOL)
+  message(FATAL_ERROR "bpftool not found!")
+endif()
+
+# Function to add custom command for building BPF bytecode and generating skeleton
+function(add_bpf_target TARGET_NAME BPF_SOURCE_FILE)
+  set(BPF_OBJECT "${CMAKE_BINARY_DIR}/${TARGET_NAME}.o")
+  set(SKELETON_HEADER "${INCLUDE_DIR}/${TARGET_NAME}.skel.h")
+
+  add_custom_command(
+    OUTPUT ${BPF_OBJECT}
+    COMMAND ${CLANG} -D__BPF__ -Wall -g -O2 -c -target bpf -o ${BPF_OBJECT} ${EBPF_SOURCE_DIR}/${BPF_SOURCE_FILE}
+    DEPENDS ${EBPF_SOURCE_DIR}/${BPF_SOURCE_FILE}
+    COMMENT "Compiling BPF object for ${BPF_SOURCE_FILE}"
+  )
+
+  add_custom_command(
+    OUTPUT ${SKELETON_HEADER}
+    COMMAND ${BPFTOOL} gen skeleton ${BPF_OBJECT} > ${SKELETON_HEADER}
+    DEPENDS ${BPF_OBJECT}
+    COMMENT "Generating BPF Skeleton for ${BPF_SOURCE_FILE}"
+  )
+
+  add_custom_target(
+    ${TARGET_NAME}_skel ALL
+    DEPENDS ${SKELETON_HEADER}
+  )
+endfunction()
+
+# eBPF programs here
+add_bpf_target(trace_proc "trace_proc.ebpf.c")
+add_bpf_target(trace_ra "trace_ra.ebpf.c")
+
+# executable for project
+add_executable(${PROJECT_NAME} ${SOURCES})
+
+# Link libbpf
+target_link_libraries(${PROJECT_NAME} bpf)
+
+# Include directories
+target_include_directories(${PROJECT_NAME} PRIVATE ${INCLUDE_DIR})
+
+add_dependencies(${PROJECT_NAME} trace_proc_skel trace_ra_skel)
