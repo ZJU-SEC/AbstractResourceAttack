@@ -159,6 +159,7 @@ void CtlTableAnalysis::CollectCtlGlobal(){
               std::cout<<"start to travse each yuansu in the main array"<<std::endl;
               std::cout<<"the num of main array is"<<GlobalVInitList->getNumOperands()<<std::endl;
               llvm::ConstantStruct *CS=llvm::cast<llvm::ConstantStruct>(GlobalVInitList->getOperand(Index));
+              if (!CS) continue;
               bool isCtl_Table=false;
               for(unsigned IndexStruct=0;IndexStruct< CS->getNumOperands();++IndexStruct){
                 llvm::Value *test=CS->getOperand(IndexStruct);

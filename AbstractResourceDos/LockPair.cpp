@@ -284,6 +284,7 @@ void LockPair::TravseAllocUser(llvm::Function* func,llvm::Instruction* originv,s
 }
 
 bool LockPair::FindChangArg(llvm::Function * funcname, int offset){//This is equivalent to inputting funcB in funcA: call funcB and the offset of the corresponding pointer type function.
+    if (funcname->arg_size() <= offset) return false;
     std::cout<<"into FindChangeArg"<<std::endl;
     if(llvm::Value * offsetarg=funcname->getArg(offset)){
         if(!offsetarg->user_empty()){
@@ -1003,7 +1004,7 @@ bool LockPair::StructHasNamespace(llvm::Type *Ty, std::string FuncName){//Recurs
                     }
                 }
                 if(RealmType->isArrayTy()){
-                    llvm::Type *ArrayTy = RealmType->getPointerElementType();
+                    llvm::Type *ArrayTy = RealmType->getArrayElementType();
                     if(ArrayTy->isStructTy()){
                         if(TravsedStruct.find(ReturnTypeRefine(*ArrayTy)) == TravsedStruct.end()){
                             TravseStack.push_back(ArrayTy);
@@ -1067,7 +1068,7 @@ std::set<std::string> LockPair::TravseNamespace(llvm::Type *Ty){
                     }
                 }
                 if(RealmType->isArrayTy()){
-                    llvm::Type *ArrayTy = RealmType->getPointerElementType();
+                    llvm::Type *ArrayTy = RealmType->getArrayElementType();
                     if(ArrayTy->isStructTy()){
                         if(TravsedStruct.find(ReturnTypeRefine(*ArrayTy)) == TravsedStruct.end()){
                             TravseStack.push_back(ArrayTy);
